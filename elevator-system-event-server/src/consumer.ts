@@ -1,5 +1,5 @@
 import amqp from 'amqplib';
-import { InMemoryElevatorRepository, ElevatorService, ElevatorRequest } from 'elevator-system-class-library';
+import { ElevatorRepository, ElevatorService, ElevatorRequest } from 'elevator-system-class-library';
 import WebSocket, { WebSocketServer } from 'ws';
 import { RABBITMQ_URL, ELEVATOR_QUEUE, WEBSOCKET_PORT } from './config';
 
@@ -8,7 +8,7 @@ async function startConsumer() {
     const channel = await connection.createChannel();
     await channel.assertQueue(ELEVATOR_QUEUE, { durable: true });
 
-    const repository = new InMemoryElevatorRepository();
+    const repository = new ElevatorRepository();
     const elevatorService = new ElevatorService(repository);
 
     console.log(`Waiting for messages in ${ELEVATOR_QUEUE} queue...`);
