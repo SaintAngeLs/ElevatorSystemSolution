@@ -1,33 +1,43 @@
-import { IElevatorRepository, Elevator } from 'elevator-system-class-library';
-import redisClient from '../redisClient';
+import { createClient } from 'redis';
+import { config } from '../config';
+import { Elevator, IElevatorRepository } from 'elevator-system-class-library';
+
+const redisClient = createClient({
+  url: config.redis.url,
+});
+
+redisClient.on('error', (err) => console.error('Redis Client Error', err));
+
+redisClient.connect();
 
 export class RedisElevatorRepository implements IElevatorRepository {
-  private readonly prefix = 'elevator:';
-
   async addElevator(elevator: Elevator): Promise<void> {
-    await redisClient.set(`${this.prefix}${elevator.id}`, JSON.stringify(elevator));
+    await redisClient.hSet('elevators', elevator.id.toString(), JSON.stringify(elevator));
   }
 
   async getAll(): Promise<Elevator[]> {
-    const keys = await redisClient.keys(`${this.prefix}*`);
-    const elevators = await Promise.all(keys.map((key) => redisClient.get(key)));
-    return elevators.map((elevator) => JSON.parse(elevator || '{}'));
+    const elevators = await redisClient.hGetAll('elevators');
+    return Object.values(elevators).map((elevator) => JSON.parse(elevator));
   }
 
   async getById(id: number): Promise<Elevator | undefined> {
-    const elevator = await redisClient.get(`${this.prefix}${id}`);
+    const elevator = await redisClient.hGet('elevators', id.toString());
     return elevator ? JSON.parse(elevator) : undefined;
   }
 
   async update(elevator: Elevator): Promise<void> {
-    await redisClient.set(`${this.prefix}${elevator.id}`, JSON.stringify(elevator));
+    await redisClient.hSet('elevators', elevator.id.toString(), JSON.stringify(elevator));
   }
 
   async updateAll(elevators: Elevator[]): Promise<void> {
-    const pipeline = redisClient.multi();
-    elevators.forEach((elevator) => {
-      pipeline.set(`${this.prefix}${elevator.id}`, JSON.stringify(elevator));
-    });
-    await pipeline.exec();
+    const multi = redisClient.multi();
+    elevators.forEach((elevator) =>
+      multi.hSet('elevators', elevator.id.toString(), JSON.stringify(elevator))
+    );
+    await multi.exec();
+  }
+
+  async deleteElevator(id: number): Promise<void> {
+    await redisClient.hDel('elevators', id.toString());
   }
 }

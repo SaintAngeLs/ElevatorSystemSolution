@@ -1,8 +1,14 @@
-"use client";
 import React from "react";
+import dynamic from "next/dynamic";
 
-const Management = () => {
-  return <div>Management Content</div>;
+const Management = dynamic(() => import("../../components/Management"), { ssr: false });
+
+const Home = () => {
+  return (
+    <div>
+      <Management />
+    </div>
+  );
 };
 
-export default Management;
+export default Home;
