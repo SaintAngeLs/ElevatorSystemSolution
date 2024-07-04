@@ -1,9 +1,9 @@
 import { createClient } from 'redis';
-import { config } from '../config';
+import { redis } from '../config';
 import { Elevator, IElevatorRepository } from 'elevator-system-class-library';
 
 const redisClient = createClient({
-  url: config.redis.url,
+  url: redis.url,
 });
 
 redisClient.on('error', (err) => console.error('Redis Client Error', err));

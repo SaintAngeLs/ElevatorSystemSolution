@@ -3,10 +3,12 @@ import amqp from 'amqplib';
 import { config } from './config';
 import { ElevatorCreatedEvent } from './events/elevatorCreatedEvent';
 import { ElevatorUpdatedEvent } from './events/elevatorUpdatedEvent';
-import { PickupRequestEvent } from './events/pickupRequestEvent';
 import { RedisElevatorRepository } from './repositories/redisElevatorRepository';
-import { Elevator, ElevatorStatus } from 'elevator-system-class-library';
+import { Elevator, ElevatorService } from 'elevator-system-class-library';
 import redisClient from './redisClient';
+import { PickupRequestCommand } from './commands/pickupRequestCommand';
+import { PickupRequestHandler } from './commandHandlers/pickupRequestHandler';
+import { PickupRequestEvent } from './events/pickupRequestEvent';
 
 const BUILDING_KEY = 'building_config';
 
@@ -15,6 +17,8 @@ export async function setupRoutes(app: Application) {
     const channel = await connection.createChannel();
     await channel.assertQueue(config.rabbitmq.queue, { durable: true });
     const elevatorRepository = new RedisElevatorRepository();
+    const elevatorService = new ElevatorService(elevatorRepository);
+    const pickupRequestHandler = new PickupRequestHandler(elevatorService);
 
     app.post('/building', async (req: Request, res: Response) => {
         const { floors, maxElevators } = req.body;
@@ -100,14 +104,30 @@ export async function setupRoutes(app: Application) {
 
     app.post('/pickup', async (req: Request, res: Response) => {
         const { floor, direction } = req.body;
-
+    
         console.log('Received pickup request:');
         console.log(`Floor: ${floor}, Direction: ${direction}`);
-
-        const event = new PickupRequestEvent({ floor, direction });
+    
+        // Create the pickup request command and handle it
+        const pickupRequestCommand = new PickupRequestCommand(Number(floor), Number(direction));
+        await pickupRequestHandler.handle(pickupRequestCommand);
+    
+        // Send the pickup request event to the queue
+        const event = new PickupRequestEvent({ floor: Number(floor), direction: Number(direction) });
         await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
-
+    
         console.log(`Pickup request event sent to queue for Floor: ${floor}`);
-        res.status(200).send('Pickup request sent');
+    
+        // Select the nearest elevator and update its target floor
+        const elevators = await elevatorService.getStatus();
+        const nearestElevator = elevatorService.findNearestElevator(elevators, Number(floor));
+        nearestElevator.updateTarget(Number(floor));
+        await elevatorRepository.update(nearestElevator);
+    
+        // Perform movement to the target floor
+        await elevatorService.performStep();
+    
+        res.status(200).send('Pickup request sent and elevator is moving');
     });
+    
 }

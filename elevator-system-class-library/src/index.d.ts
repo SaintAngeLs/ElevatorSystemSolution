@@ -35,11 +35,12 @@ declare module 'elevator-system-class-library' {
   
     // Repositories
     export interface IElevatorRepository {
-      getAll(): Promise<Elevator[]>;
-      getById(id: number): Promise<Elevator | undefined>;
-      update(elevator: Elevator): Promise<void>;
-      updateAll(elevators: Elevator[]): Promise<void>;
-      addElevator(elevator: Elevator): Promise<void>;
+        addElevator(elevator: Elevator): Promise<void>;
+        getAll(): Promise<Elevator[]>;
+        getById(id: number): Promise<Elevator | undefined>;
+        update(elevator: Elevator): Promise<void>;
+        updateAll(elevators: Elevator[]): Promise<void>;
+        deleteElevator(id: number): Promise<void>;
     }
   
     export class ElevatorRepository implements IElevatorRepository {
@@ -52,23 +53,26 @@ declare module 'elevator-system-class-library' {
       getById(id: number): Promise<Elevator | undefined>;
       update(elevator: Elevator): Promise<void>;
       updateAll(elevators: Elevator[]): Promise<void>;
+      deleteElevator(id: number): Promise<void>;
     }
   
     // Services
     export class ElevatorService {
-      constructor(elevatorRepository: IElevatorRepository);
-  
-      addElevator(id: number, initialFloor: number, capacity: number): Promise<Elevator>;
-      handlePickupRequest(request: ElevatorRequest): Promise<Elevator>;
-      handleUpdate(
-        id: number,
-        currentFloor: number,
-        targetFloor: number,
-        load: number
-      ): Promise<Elevator | undefined>;
-      performStep(): Promise<void>;
-      getStatus(): Promise<Elevator[]>;
-    }
+        constructor(elevatorRepository: IElevatorRepository);
+    
+        addElevator(id: number, initialFloor: number, capacity: number): Promise<Elevator>;
+        handlePickupRequest(request: ElevatorRequest): Promise<Elevator>;
+        handleUpdate(
+          id: number,
+          currentFloor: number,
+          targetFloor: number,
+          load: number
+        ): Promise<Elevator | undefined>;
+        performStep(): Promise<void>;
+        startMovement(): Promise<void>;
+        getStatus(): Promise<Elevator[]>;
+        findNearestElevator(elevators: Elevator[], floor: number): Elevator;
+      }
   
     // DTOs
     export interface ElevatorDTO {

@@ -26,4 +26,8 @@ export class ElevatorRepository implements IElevatorRepository {
     async updateAll(elevators: Elevator[]): Promise<void> {
         elevators.forEach(elevator => this.update(elevator));
     }
+
+    async deleteElevator(id: number): Promise<void> {
+        this.elevators = this.elevators.filter(elevator => elevator.id !== id);
+    }
 }

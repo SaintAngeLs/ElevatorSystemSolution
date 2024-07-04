@@ -1,7 +1,8 @@
 import amqp from 'amqplib';
-import { ElevatorRepository, ElevatorService, ElevatorRequest } from 'elevator-system-class-library';
+import { ElevatorService, ElevatorRequest } from 'elevator-system-class-library';
 import WebSocket, { WebSocketServer } from 'ws';
 import { RABBITMQ_URL, ELEVATOR_QUEUE, WEBSOCKET_PORT } from './config';
+import { RedisElevatorRepository } from './repositories/redisElevatorRepository';
 
 const clients: WebSocket[] = [];
 
@@ -10,7 +11,7 @@ async function startConsumer() {
     const channel = await connection.createChannel();
     await channel.assertQueue(ELEVATOR_QUEUE, { durable: true });
 
-    const repository = new ElevatorRepository();
+    const repository = new RedisElevatorRepository();
     const elevatorService = new ElevatorService(repository);
 
     console.log(`Waiting for messages in ${ELEVATOR_QUEUE} queue...`);
@@ -20,7 +21,7 @@ async function startConsumer() {
             if (Object.keys(event).length === 0) {
                 console.warn('Received empty message');
             } else {
-                await handleEvent(event, elevatorService);
+                await handleEvent(event, channel, elevatorService);
                 const status = await elevatorService.getStatus();
                 broadcastUpdate(status);
                 channel.ack(msg);
@@ -31,12 +32,12 @@ async function startConsumer() {
     startWebSocketServer(elevatorService);
 }
 
-async function handleEvent(event: any, elevatorService: ElevatorService) {
+async function handleEvent(event: any, channel: amqp.Channel, elevatorService: ElevatorService) {
     switch (event.type) {
         case 'PICKUP_REQUEST':
             console.log('Handling pickup request:', event.payload);
-            const pickupRequest = new ElevatorRequest(event.payload.floor, event.payload.direction);
-            await elevatorService.handlePickupRequest(pickupRequest);
+            await elevatorService.handlePickupRequest(new ElevatorRequest(event.payload.floor, event.payload.direction));
+            await elevatorService.startMovement();  // Start the movement after handling the pickup request
             break;
         case 'ELEVATOR_UPDATED':
             console.log('Handling update:', event.payload);
@@ -49,6 +50,11 @@ async function handleEvent(event: any, elevatorService: ElevatorService) {
         default:
             console.log('Unknown event type:', event.type);
     }
+}
+
+async function publishEvent(channel: amqp.Channel, type: string, payload: any) {
+    const event = { type, payload };
+    await channel.sendToQueue(ELEVATOR_QUEUE, Buffer.from(JSON.stringify(event)));
 }
 
 function startWebSocketServer(elevatorService: ElevatorService) {

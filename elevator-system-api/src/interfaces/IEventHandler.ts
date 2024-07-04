@@ -1,4 +1,4 @@
-export interface IEventHandler {
-    handleEvent(event: any): Promise<void>;
+export interface IEventHandler<T> {
+    handle(event: T): Promise<void>;
   }
   

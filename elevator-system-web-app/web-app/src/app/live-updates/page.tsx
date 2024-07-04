@@ -18,15 +18,15 @@ const LiveUpdates = () => {
     };
 
     ws.current.onmessage = (event) => {
-      const update = JSON.parse(event.data);
-      setRealTimeUpdates((prev) => [...prev, update]);
-      setElevators((prevElevators) =>
-        prevElevators.map((elevator) =>
-          elevator.id === update.id
-            ? { ...elevator, currentFloor: update.currentFloor, targetFloor: update.targetFloor, status: update.status }
-            : elevator
-        )
-      );
+      const updates = JSON.parse(event.data);
+      setRealTimeUpdates((prev) => [...prev, ...updates]);
+      setElevators((prevElevators) => {
+        const updatedElevators = updates.map(update => {
+          const existing = prevElevators.find(elevator => elevator.id === update.id);
+          return existing ? { ...existing, ...update } : update;
+        });
+        return updatedElevators;
+      });
     };
 
     ws.current.onerror = (error) => {
@@ -83,10 +83,10 @@ const LiveUpdates = () => {
     const elevatorEl = document.getElementById(`elevator-${id}`);
     if (!elevatorEl) return;
 
-    const floorHeight = 60; // Adjust based on your layout
+    const floorHeight = 1; // Adjust based on your layout
     const targetY = (buildingConfig.floors - targetFloor - 1) * floorHeight;
-    
-    elevatorEl.style.transform = `translateY(-${targetY}px)`;
+
+    elevatorEl.style.transform = `translateY(${targetY}px)`;
   };
 
   const callElevator = async (floor) => {

@@ -6,4 +6,5 @@ export interface IElevatorRepository {
     update(elevator: Elevator): Promise<void>;
     updateAll(elevators: Elevator[]): Promise<void>;
     addElevator(elevator: Elevator): Promise<void>;
+    deleteElevator(id: number): Promise<void>;
 }

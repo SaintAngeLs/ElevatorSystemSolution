@@ -1,4 +1,3 @@
-
 import { ElevatorRequest, ElevatorService } from 'elevator-system-class-library';
 import { ICommandHandler } from '../interfaces/ICommandHandler';
 import { PickupRequestCommand } from '../commands/pickupRequestCommand';

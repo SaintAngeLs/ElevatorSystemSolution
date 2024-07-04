@@ -13,7 +13,7 @@ export class ElevatorService {
 
     async handlePickupRequest(request: ElevatorRequest): Promise<Elevator> {
         const elevators = await this.elevatorRepository.getAll();
-        console.log('Elevators:', elevators); // Debugging line
+        console.log('Elevators:', elevators);
 
         if (elevators.length === 0) {
             throw new Error('No elevators available');
@@ -39,15 +39,28 @@ export class ElevatorService {
 
     async performStep(): Promise<void> {
         const elevators = await this.elevatorRepository.getAll();
-        elevators.forEach(elevator => elevator.move());
+        elevators.forEach(elevator => {
+            elevator.move();
+        });
         await this.elevatorRepository.updateAll(elevators);
+    }
+
+    async startMovement(): Promise<void> {
+        const moveInterval = setInterval(async () => {
+            await this.performStep();
+            const elevators = await this.elevatorRepository.getAll();
+            const anyMoving = elevators.some(elevator => elevator.status === 'Moving');
+            if (!anyMoving) {
+                clearInterval(moveInterval);
+            }
+        }, 50); 
     }
 
     async getStatus(): Promise<Elevator[]> {
         return this.elevatorRepository.getAll();
     }
 
-    private findNearestElevator(elevators: Elevator[], floor: number): Elevator {
+    public findNearestElevator(elevators: Elevator[], floor: number): Elevator {
         if (elevators.length === 0) {
             throw new Error('No elevators available');
         }
