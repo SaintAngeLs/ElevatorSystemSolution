@@ -1,5 +1,11 @@
 declare module 'elevator-system-class-library' {
     // Entities
+    export enum ElevatorStatus {
+        Available = 'Available',
+        Moving = 'Moving',
+        Unavailable = 'Unavailable',
+    }
+
     export class Elevator {
       constructor(
         id: number,

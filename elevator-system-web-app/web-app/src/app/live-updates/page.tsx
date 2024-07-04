@@ -1,132 +1,183 @@
-// src/app/live-updates/page.tsx
-
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
 const LiveUpdates = () => {
-  const [id, setId] = useState('');
-  const [initialFloor, setInitialFloor] = useState(0);
-  const [capacity, setCapacity] = useState(0);
-  const [currentFloor, setCurrentFloor] = useState(0);
-  const [targetFloor, setTargetFloor] = useState(0);
-  const [load, setLoad] = useState(0);
   const [realTimeUpdates, setRealTimeUpdates] = useState([]);
+  const [buildingConfig, setBuildingConfig] = useState({ floors: 0, maxElevators: 0 });
+  const [elevators, setElevators] = useState([]);
+  const buildingRef = useRef(null);
+  const ws = useRef(null);
+
+  const connectWebSocket = () => {
+    ws.current = new WebSocket(process.env.NEXT_PUBLIC_WS_URL);
+
+    ws.current.onopen = () => {
+      console.log('WebSocket connection established');
+    };
+
+    ws.current.onmessage = (event) => {
+      const update = JSON.parse(event.data);
+      setRealTimeUpdates((prev) => [...prev, update]);
+      setElevators((prevElevators) =>
+        prevElevators.map((elevator) =>
+          elevator.id === update.id
+            ? { ...elevator, currentFloor: update.currentFloor, targetFloor: update.targetFloor, status: update.status }
+            : elevator
+        )
+      );
+    };
+
+    ws.current.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    ws.current.onclose = (event) => {
+      console.warn('WebSocket connection closed. Reconnecting...');
+      setTimeout(connectWebSocket, 1000); // Reconnect after 1 second
+    };
+  };
 
   useEffect(() => {
-    const ws = new WebSocket(process.env.NEXT_PUBLIC_WS_URL);
-    ws.onmessage = (event) => {
-      setRealTimeUpdates(prev => [...prev, JSON.parse(event.data)]);
+    fetchBuildingConfig();
+    fetchElevators();
+    connectWebSocket();
+
+    return () => {
+      if (ws.current) ws.current.close();
     };
-    return () => ws.close();
   }, []);
 
-  const handleCreateElevator = async () => {
+  useEffect(() => {
+    if (buildingRef.current) {
+      renderBuilding();
+    }
+  }, [buildingConfig]);
+
+  useEffect(() => {
+    elevators.forEach(elevator => {
+      moveElevator(elevator.id, elevator.currentFloor);
+    });
+  }, [elevators]);
+
+  const fetchBuildingConfig = async () => {
     try {
-      const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/elevator`, {
-        id,
-        initialFloor,
-        capacity
-      });
-      console.log(response.data);
+      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/building`);
+      setBuildingConfig(response.data);
     } catch (error) {
-      console.error('Failed to create elevator:', error);
+      console.error('Error fetching building configuration:', error);
     }
   };
 
-  const handleUpdateElevator = async () => {
+  const fetchElevators = async () => {
     try {
-      const response = await axios.put(`${process.env.NEXT_PUBLIC_API_URL}/elevator/${id}`, {
-        currentFloor,
-        targetFloor,
-        load
-      });
-      console.log(response.data);
+      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/elevators/status`);
+      setElevators(response.data);
     } catch (error) {
-      console.error('Failed to update elevator:', error);
+      console.error('Error fetching elevators:', error);
     }
+  };
+
+  const moveElevator = (id, targetFloor) => {
+    const elevatorEl = document.getElementById(`elevator-${id}`);
+    if (!elevatorEl) return;
+
+    const floorHeight = 60; // Adjust based on your layout
+    const targetY = (buildingConfig.floors - targetFloor - 1) * floorHeight;
+    
+    elevatorEl.style.transform = `translateY(-${targetY}px)`;
+  };
+
+  const callElevator = async (floor) => {
+    try {
+      await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/pickup`, {
+        floor,
+        direction: 1 // Assuming direction 1 means "up", adjust as needed
+      });
+    } catch (error) {
+      console.error('Failed to call elevator:', error);
+    }
+  };
+
+  const renderBuilding = () => {
+    const floors = [];
+    for (let i = 0; i < buildingConfig.floors; i++) {
+      floors.push(
+        <div
+          key={i}
+          className="floor flex items-center border-b border-gray-300 p-2"
+          onClick={() => callElevator(buildingConfig.floors - i - 1)}
+          style={{ height: '60px', cursor: 'pointer', position: 'relative', display: 'flex', justifyContent: 'space-between' }}
+        >
+          <span>Floor {buildingConfig.floors - i - 1}</span>
+          {Array.from({ length: buildingConfig.maxElevators }).map((_, elevatorIndex) => (
+            <div key={elevatorIndex} style={{ width: '40px', height: '40px', position: 'relative' }}>
+              {renderElevator(elevatorIndex, buildingConfig.floors - i - 1)}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return floors;
+  };
+
+  const renderElevator = (elevatorIndex, floor) => {
+    const elevator = elevators.find(e => e.id === elevatorIndex + 1);
+    if (elevator && elevator.currentFloor === floor) {
+      return (
+        <div
+          id={`elevator-${elevator.id}`}
+          className={`elevator bg-blue-500 text-white flex items-center justify-center rounded ${elevator.status}`}
+          style={{
+            width: '40px',
+            height: '40px',
+            position: 'absolute',
+            top: 0,
+            transition: 'transform 1s ease-in-out'
+          }}
+        >
+          {elevator.id}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const renderControlPanel = () => {
+    const buttons = [];
+    for (let i = 0; i < buildingConfig.floors; i++) {
+      buttons.push(
+        <button
+          key={i}
+          className="control-button bg-blue-500 text-white p-2 rounded m-1"
+          onClick={() => callElevator(buildingConfig.floors - i - 1)}
+        >
+          Call to Floor {buildingConfig.floors - i - 1}
+        </button>
+      );
+    }
+    return buttons;
   };
 
   return (
     <div className="container mx-auto p-4">
-      <h1 className="text-3xl font-bold mb-4 text-center">Elevator Management System</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-2xl font-semibold mb-4">Create Elevator</h2>
-          <div className="mb-4">
-            <input
-              value={id}
-              onChange={(e) => setId(e.target.value)}
-              placeholder="Elevator ID"
-              className="w-full p-2 border border-gray-300 rounded"
-            />
-          </div>
-          <div className="mb-4">
-            <input
-              type="number"
-              value={initialFloor}
-              onChange={(e) => setInitialFloor(Number(e.target.value))}
-              placeholder="Initial Floor"
-              className="w-full p-2 border border-gray-300 rounded"
-            />
-          </div>
-          <div className="mb-4">
-            <input
-              type="number"
-              value={capacity}
-              onChange={(e) => setCapacity(Number(e.target.value))}
-              placeholder="Capacity"
-              className="w-full p-2 border border-gray-300 rounded"
-            />
-          </div>
-          <button
-            onClick={handleCreateElevator}
-            className="w-full bg-blue-500 text-white p-2 rounded"
-          >
-            Create Elevator
-          </button>
+      <h1 className="text-3xl font-bold mb-4 text-center">Building Schema</h1>
+      <div className="mt-6 bg-white p-6 rounded-lg shadow-md">
+        <h2 className="text-2xl font-semibold mb-4">Control Panel</h2>
+        <div className="control-panel flex flex-wrap justify-center">
+          {renderControlPanel()}
         </div>
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-2xl font-semibold mb-4">Update Elevator</h2>
-          <div className="mb-4">
-            <input
-              type="number"
-              value={currentFloor}
-              onChange={(e) => setCurrentFloor(Number(e.target.value))}
-              placeholder="Current Floor"
-              className="w-full p-2 border border-gray-300 rounded"
-            />
-          </div>
-          <div className="mb-4">
-            <input
-              type="number"
-              value={targetFloor}
-              onChange={(e) => setTargetFloor(Number(e.target.value))}
-              placeholder="Target Floor"
-              className="w-full p-2 border border-gray-300 rounded"
-            />
-          </div>
-          <div className="mb-4">
-            <input
-              type="number"
-              value={load}
-              onChange={(e) => setLoad(Number(e.target.value))}
-              placeholder="Load"
-              className="w-full p-2 border border-gray-300 rounded"
-            />
-          </div>
-          <button
-            onClick={handleUpdateElevator}
-            className="w-full bg-green-500 text-white p-2 rounded"
-          >
-            Update Elevator
-          </button>
+      </div>
+      <div className="mt-6 bg-white p-6 rounded-lg shadow-md">
+        <h2 className="text-2xl font-semibold mb-4">Building Overview</h2>
+        <div ref={buildingRef} className="building-schema" style={{ border: '1px solid black', position: 'relative' }}>
+          {renderBuilding()}
         </div>
       </div>
       <div className="mt-6 bg-white p-6 rounded-lg shadow-md">
         <h2 className="text-2xl font-semibold mb-4">Real-Time Updates</h2>
-        <ul className="space-y-2">
+        <ul className="space-y-2 max-h-64 overflow-y-auto">
           {realTimeUpdates.map((update, index) => (
             <li key={index} className="bg-gray-100 p-2 rounded">
               {JSON.stringify(update)}

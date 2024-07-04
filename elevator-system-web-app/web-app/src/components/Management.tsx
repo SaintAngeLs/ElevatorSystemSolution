@@ -22,15 +22,27 @@ import {
 import { Add, Delete, Edit } from "@mui/icons-material";
 
 const Management = () => {
-  const [buildingConfig, setBuildingConfig] = useState({ floors: 10 });
+  const [buildingConfig, setBuildingConfig] = useState({ floors: 0, maxElevators: 0 });
   const [elevators, setElevators] = useState([]);
   const [openDialog, setOpenDialog] = useState(false);
   const [editingElevator, setEditingElevator] = useState(null);
   const [newElevator, setNewElevator] = useState({ initialFloor: 0, capacity: 10 });
+  const [buildingDialogOpen, setBuildingDialogOpen] = useState(false);
+  const [bulkCapacity, setBulkCapacity] = useState(10);
 
   useEffect(() => {
+    fetchBuildingConfig();
     fetchElevators();
   }, []);
+
+  const fetchBuildingConfig = async () => {
+    try {
+      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/building`);
+      setBuildingConfig(response.data);
+    } catch (error) {
+      console.error("Error fetching building configuration:", error);
+    }
+  };
 
   const fetchElevators = async () => {
     try {
@@ -39,6 +51,31 @@ const Management = () => {
       setElevators(response.data);
     } catch (error) {
       console.error("Error fetching elevators:", error);
+    }
+  };
+
+  const handleBuildingDialogOpen = () => {
+    setBuildingDialogOpen(true);
+  };
+
+  const handleBuildingDialogClose = () => {
+    setBuildingDialogOpen(false);
+  };
+
+  const handleBuildingSave = async () => {
+    try {
+      await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/building`, buildingConfig);
+      fetchBuildingConfig();
+      handleBuildingDialogClose();
+    } catch (error) {
+      console.error("Error saving building configuration:", error);
+    }
+  };
+
+  const handleInputChange = (setter) => (event) => {
+    const value = event.target.value;
+    if (/^\d*$/.test(value)) {
+      setter(Number(value));
     }
   };
 
@@ -58,9 +95,13 @@ const Management = () => {
       if (editingElevator) {
         await axios.put(`${process.env.NEXT_PUBLIC_API_URL}/elevator/${editingElevator.id}`, newElevator);
       } else {
-        await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/elevator`, { ...newElevator, id: elevators.length + 1 });
+        if (elevators.length < buildingConfig.maxElevators) {
+          await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/elevator`, { ...newElevator, id: elevators.length + 1 });
+          fetchElevators();
+        } else {
+          alert("Maximum number of elevators reached");
+        }
       }
-      fetchElevators();
       handleDialogClose();
     } catch (error) {
       console.error("Error saving elevator:", error);
@@ -76,6 +117,23 @@ const Management = () => {
     }
   };
 
+  const handleGenerateMaxElevators = async () => {
+    try {
+      const existingElevators = elevators.length;
+      const remainingElevators = buildingConfig.maxElevators - existingElevators;
+      for (let i = 0; i < remainingElevators; i++) {
+        await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/elevator`, {
+          initialFloor: 0,
+          capacity: bulkCapacity,
+          id: existingElevators + i + 1
+        });
+      }
+      fetchElevators();
+    } catch (error) {
+      console.error("Error generating elevators:", error);
+    }
+  };
+
   return (
     <Container sx={{ borderRadius: 2, backgroundColor: 'white', p: 3, boxShadow: 3 }}>
       <AppBar position="static">
@@ -86,13 +144,16 @@ const Management = () => {
       <Box my={4}>
         <Typography variant="h5">Current Building Configuration</Typography>
         <Box mt={2}>
-          <TextField
-            label="Number of Floors"
-            type="number"
-            value={buildingConfig.floors}
-            onChange={(e) => setBuildingConfig({ floors: Number(e.target.value) })}
-          />
+          <Typography>Floors: {buildingConfig.floors}</Typography>
+          <Typography>Max Elevators: {buildingConfig.maxElevators}</Typography>
         </Box>
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={handleBuildingDialogOpen}
+        >
+          Edit Building Configuration
+        </Button>
       </Box>
       <Box my={4}>
         <Typography variant="h5">Elevators</Typography>
@@ -104,6 +165,23 @@ const Management = () => {
         >
           Add Elevator
         </Button>
+        <Button
+          variant="contained"
+          color="secondary"
+          onClick={handleGenerateMaxElevators}
+          sx={{ ml: 2 }}
+        >
+          Generate Max Elevators
+        </Button>
+        <TextField
+          margin="dense"
+          label="Elevator Capacity"
+          type="text"
+          fullWidth
+          value={bulkCapacity}
+          onChange={handleInputChange(setBulkCapacity)}
+          sx={{ mt: 2 }}
+        />
         <List>
           {elevators.map((elevator) => (
             <ListItem key={elevator.id}>
@@ -123,24 +201,53 @@ const Management = () => {
           ))}
         </List>
       </Box>
+      <Dialog open={buildingDialogOpen} onClose={handleBuildingDialogClose}>
+        <DialogTitle>Edit Building Configuration</DialogTitle>
+        <DialogContent>
+          <TextField
+            margin="dense"
+            label="Number of Floors"
+            type="text"
+            fullWidth
+            value={buildingConfig.floors}
+            onChange={handleInputChange((value) => setBuildingConfig({ ...buildingConfig, floors: value }))}
+          />
+          <TextField
+            margin="dense"
+            label="Max Elevators"
+            type="text"
+            fullWidth
+            value={buildingConfig.maxElevators}
+            onChange={handleInputChange((value) => setBuildingConfig({ ...buildingConfig, maxElevators: value }))}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleBuildingDialogClose} color="secondary">
+            Cancel
+          </Button>
+          <Button onClick={handleBuildingSave} color="primary">
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog open={openDialog} onClose={handleDialogClose}>
         <DialogTitle>{editingElevator ? "Edit Elevator" : "Add Elevator"}</DialogTitle>
         <DialogContent>
           <TextField
             margin="dense"
             label="Initial Floor"
-            type="number"
+            type="text"
             fullWidth
             value={newElevator.initialFloor}
-            onChange={(e) => setNewElevator({ ...newElevator, initialFloor: Number(e.target.value) })}
+            onChange={handleInputChange((value) => setNewElevator({ ...newElevator, initialFloor: value }))}
           />
           <TextField
             margin="dense"
             label="Capacity"
-            type="number"
+            type="text"
             fullWidth
             value={newElevator.capacity}
-            onChange={(e) => setNewElevator({ ...newElevator, capacity: Number(e.target.value) })}
+            onChange={handleInputChange((value) => setNewElevator({ ...newElevator, capacity: value }))}
           />
         </DialogContent>
         <DialogActions>

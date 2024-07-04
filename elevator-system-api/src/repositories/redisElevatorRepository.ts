@@ -17,12 +17,23 @@ export class RedisElevatorRepository implements IElevatorRepository {
 
   async getAll(): Promise<Elevator[]> {
     const elevators = await redisClient.hGetAll('elevators');
-    return Object.values(elevators).map((elevator) => JSON.parse(elevator));
+    console.log('Fetched elevators from Redis:', elevators);
+    return Object.values(elevators).map((elevator) => new Elevator(
+      JSON.parse(elevator).id,
+      JSON.parse(elevator).currentFloor,
+      JSON.parse(elevator).capacity,
+      JSON.parse(elevator).targetFloor,
+      JSON.parse(elevator).load
+    ));
   }
 
   async getById(id: number): Promise<Elevator | undefined> {
     const elevator = await redisClient.hGet('elevators', id.toString());
-    return elevator ? JSON.parse(elevator) : undefined;
+    if (elevator) {
+      const parsed = JSON.parse(elevator);
+      return new Elevator(parsed.id, parsed.currentFloor, parsed.capacity, parsed.targetFloor, parsed.load);
+    }
+    return undefined;
   }
 
   async update(elevator: Elevator): Promise<void> {
