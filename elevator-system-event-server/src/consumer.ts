@@ -1,17 +1,18 @@
 import amqp from 'amqplib';
 import { InMemoryElevatorRepository, ElevatorService, ElevatorRequest } from 'elevator-system-class-library';
 import WebSocket, { WebSocketServer } from 'ws';
+import { RABBITMQ_URL, ELEVATOR_QUEUE, WEBSOCKET_PORT } from './config';
 
 async function startConsumer() {
-    const connection = await amqp.connect('amqp://localhost');
+    const connection = await amqp.connect(RABBITMQ_URL);
     const channel = await connection.createChannel();
-    await channel.assertQueue('elevator_events', { durable: true });
+    await channel.assertQueue(ELEVATOR_QUEUE, { durable: true });
 
     const repository = new InMemoryElevatorRepository();
     const elevatorService = new ElevatorService(repository);
 
-    console.log('Waiting for messages in elevator_events queue...');
-    channel.consume('elevator_events', async (msg) => {
+    console.log(`Waiting for messages in ${ELEVATOR_QUEUE} queue...`);
+    channel.consume(ELEVATOR_QUEUE, async (msg) => {
         if (msg !== null) {
             const event = JSON.parse(msg.content.toString());
             await handleEvent(event, elevatorService);
@@ -43,7 +44,7 @@ async function handleEvent(event: any, elevatorService: ElevatorService) {
 }
 
 function startWebSocketServer(elevatorService: ElevatorService) {
-    const wss = new WebSocketServer({ port: 8080 });
+    const wss = new WebSocketServer({ port: WEBSOCKET_PORT });
 
     wss.on('connection', (ws) => {
         console.log('Client connected');
@@ -58,7 +59,7 @@ function startWebSocketServer(elevatorService: ElevatorService) {
         }, 1000); 
     });
 
-    console.log('WebSocket server running on ws://localhost:8080');
+    console.log(`WebSocket server running on ws://localhost:${WEBSOCKET_PORT}`);
 }
 
 startConsumer().catch(console.error);
