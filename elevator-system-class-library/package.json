@@ -1,7 +1,7 @@
 {
   "name": "elevator-system-class-library",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/elevatorSystem.js",
   "scripts": {
     "build": "tsc",
     "test": "jest --verbose"
