@@ -5,38 +5,38 @@ import { IElevatorRepository } from '../repositories/IElevatorRepository';
 export class ElevatorService {
     constructor(private elevatorRepository: IElevatorRepository) {}
 
-    addElevator(id: number, initialFloor: number, capacity: number): Elevator {
+    async addElevator(id: number, initialFloor: number, capacity: number): Promise<Elevator> {
         const elevator = new Elevator(id, initialFloor, capacity);
-        this.elevatorRepository.addElevator(elevator);
+        await this.elevatorRepository.addElevator(elevator);
         return elevator;
     }
 
-    handlePickupRequest(request: ElevatorRequest): Elevator {
-        const elevators = this.elevatorRepository.getAll();
+    async handlePickupRequest(request: ElevatorRequest): Promise<Elevator> {
+        const elevators = await this.elevatorRepository.getAll();
         const nearestElevator = this.findNearestElevator(elevators, request.floor);
         nearestElevator.updateTarget(request.floor);
-        this.elevatorRepository.update(nearestElevator);
+        await this.elevatorRepository.update(nearestElevator);
         return nearestElevator;
     }
 
-    handleUpdate(id: number, currentFloor: number, targetFloor: number, load: number): Elevator | undefined {
-        const elevator = this.elevatorRepository.getById(id);
+    async handleUpdate(id: number, currentFloor: number, targetFloor: number, load: number): Promise<Elevator | undefined> {
+        const elevator = await this.elevatorRepository.getById(id);
         if (elevator) {
             elevator.currentFloor = currentFloor;
             elevator.updateTarget(targetFloor);
             elevator.load = load;
-            this.elevatorRepository.update(elevator);
+            await this.elevatorRepository.update(elevator);
         }
         return elevator;
     }
 
-    performStep() {
-        const elevators = this.elevatorRepository.getAll();
+    async performStep(): Promise<void> {
+        const elevators = await this.elevatorRepository.getAll();
         elevators.forEach(elevator => elevator.move());
-        this.elevatorRepository.updateAll(elevators);
+        await this.elevatorRepository.updateAll(elevators);
     }
 
-    getStatus(): Elevator[] {
+    async getStatus(): Promise<Elevator[]> {
         return this.elevatorRepository.getAll();
     }
 

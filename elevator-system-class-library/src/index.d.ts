@@ -29,11 +29,11 @@ declare module 'elevator-system-class-library' {
   
     // Repositories
     export interface IElevatorRepository {
-      getAll(): Elevator[];
-      getById(id: number): Elevator | undefined;
-      update(elevator: Elevator): void;
-      updateAll(elevators: Elevator[]): void;
-      addElevator(elevator: Elevator): void;
+      getAll(): Promise<Elevator[]>;
+      getById(id: number): Promise<Elevator | undefined>;
+      update(elevator: Elevator): Promise<void>;
+      updateAll(elevators: Elevator[]): Promise<void>;
+      addElevator(elevator: Elevator): Promise<void>;
     }
   
     export class InMemoryElevatorRepository implements IElevatorRepository {
@@ -41,27 +41,27 @@ declare module 'elevator-system-class-library' {
   
       constructor();
   
-      addElevator(elevator: Elevator): void;
-      getAll(): Elevator[];
-      getById(id: number): Elevator | undefined;
-      update(elevator: Elevator): void;
-      updateAll(elevators: Elevator[]): void;
+      addElevator(elevator: Elevator): Promise<void>;
+      getAll(): Promise<Elevator[]>;
+      getById(id: number): Promise<Elevator | undefined>;
+      update(elevator: Elevator): Promise<void>;
+      updateAll(elevators: Elevator[]): Promise<void>;
     }
   
     // Services
     export class ElevatorService {
       constructor(elevatorRepository: IElevatorRepository);
   
-      addElevator(id: number, initialFloor: number, capacity: number): Elevator;
-      handlePickupRequest(request: ElevatorRequest): Elevator;
+      addElevator(id: number, initialFloor: number, capacity: number): Promise<Elevator>;
+      handlePickupRequest(request: ElevatorRequest): Promise<Elevator>;
       handleUpdate(
         id: number,
         currentFloor: number,
         targetFloor: number,
         load: number
-      ): Elevator | undefined;
-      performStep(): void;
-      getStatus(): Elevator[];
+      ): Promise<Elevator | undefined>;
+      performStep(): Promise<void>;
+      getStatus(): Promise<Elevator[]>;
     }
   
     // DTOs
@@ -79,4 +79,3 @@ declare module 'elevator-system-class-library' {
       static toDomain(dto: ElevatorDTO): Elevator;
     }
   }
-  
