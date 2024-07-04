@@ -4,4 +4,7 @@ export const config = {
         queue: 'elevator_events'
     },
     apiPort: 8080,
+    redis: {
+        url: process.env.REDIS_URL || 'redis://localhost:6379',
+    },
 };

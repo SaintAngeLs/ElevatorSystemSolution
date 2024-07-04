@@ -36,7 +36,7 @@ declare module 'elevator-system-class-library' {
       addElevator(elevator: Elevator): Promise<void>;
     }
   
-    export class InMemoryElevatorRepository implements IElevatorRepository {
+    export class ElevatorRepository implements IElevatorRepository {
       private elevators: Elevator[];
   
       constructor();
