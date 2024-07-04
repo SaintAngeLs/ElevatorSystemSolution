@@ -5,10 +5,8 @@ import { IElevatorRepository } from '../repositories/IElevatorRepository';
 export class ElevatorService {
     constructor(private elevatorRepository: IElevatorRepository) {}
 
-    addElevator(id: number, 
-        initialFloor: number, 
-        capacity: number): Elevator {
-        const elevator = new Elevator(id, initialFloor, null, capacity);
+    addElevator(id: number, initialFloor: number, capacity: number): Elevator {
+        const elevator = new Elevator(id, initialFloor, capacity);
         this.elevatorRepository.addElevator(elevator);
         return elevator;
     }
@@ -21,9 +19,7 @@ export class ElevatorService {
         return nearestElevator;
     }
 
-    handleUpdate(id: number, currentFloor: number, 
-        targetFloor: number, 
-        load: number): Elevator | undefined {
+    handleUpdate(id: number, currentFloor: number, targetFloor: number, load: number): Elevator | undefined {
         const elevator = this.elevatorRepository.getById(id);
         if (elevator) {
             elevator.currentFloor = currentFloor;
@@ -44,8 +40,7 @@ export class ElevatorService {
         return this.elevatorRepository.getAll();
     }
 
-    private findNearestElevator(elevators: Elevator[], 
-        floor: number): Elevator {
+    private findNearestElevator(elevators: Elevator[], floor: number): Elevator {
         return elevators.reduce((prev, curr) =>
             Math.abs(curr.currentFloor - floor) < 
                         Math.abs(prev.currentFloor - floor) ? curr : prev

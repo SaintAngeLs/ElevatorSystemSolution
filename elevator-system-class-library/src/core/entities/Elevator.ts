@@ -2,8 +2,8 @@ export class Elevator {
     constructor(
         public readonly id: number,
         public currentFloor: number,
-        public targetFloor: number | null = null,
         public capacity: number,
+        public targetFloor: number | null = null,
         public load: number = 0
     ) {}
 
