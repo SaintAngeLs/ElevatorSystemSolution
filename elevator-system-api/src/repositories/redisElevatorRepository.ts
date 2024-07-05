@@ -17,7 +17,6 @@ export class RedisElevatorRepository implements IElevatorRepository {
 
   async getAll(): Promise<Elevator[]> {
     const elevators = await redisClient.hGetAll('elevators');
-    console.log('Raw elevators data from Redis:', elevators);
     return Object.values(elevators).map((elevator) => {
       const parsed = JSON.parse(elevator);
       return new Elevator(

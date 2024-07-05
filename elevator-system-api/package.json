@@ -17,7 +17,8 @@
     "cors": "^2.8.5",
     "elevator-system-class-library": "file:../elevator-system-class-library",
     "express": "^4.19.2",
-    "redis": "^4.6.15"
+    "redis": "^4.6.15",
+    "winston": "^3.13.0"
   },
   "devDependencies": {
     "@types/amqplib": "^0.10.5",
