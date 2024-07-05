@@ -20,7 +20,6 @@ export class RedisElevatorRepository implements IElevatorRepository {
     console.log('Raw elevators data from Redis:', elevators);
     return Object.values(elevators).map((elevator) => {
       const parsed = JSON.parse(elevator);
-      console.log('Parsed elevator:', parsed);
       return new Elevator(
         parsed.id,
         parsed.currentFloor,

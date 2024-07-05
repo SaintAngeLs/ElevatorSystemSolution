@@ -1,10 +1,10 @@
 import { Application, Request, Response } from 'express';
-import amqp from 'amqplib';
+import amqp, { Channel } from 'amqplib';
 import { config } from './config';
 import { ElevatorCreatedEvent } from './events/elevatorCreatedEvent';
 import { ElevatorUpdatedEvent } from './events/elevatorUpdatedEvent';
 import { RedisElevatorRepository } from './repositories/redisElevatorRepository';
-import { Elevator, ElevatorService } from 'elevator-system-class-library';
+import { Elevator, ElevatorService, ElevatorStatus } from 'elevator-system-class-library';
 import redisClient from './redisClient';
 import { PickupRequestCommand } from './commands/pickupRequestCommand';
 import { PickupRequestHandler } from './commandHandlers/pickupRequestHandler';
@@ -21,113 +21,155 @@ export async function setupRoutes(app: Application) {
     const pickupRequestHandler = new PickupRequestHandler(elevatorService);
 
     app.post('/building', async (req: Request, res: Response) => {
-        const { floors, maxElevators } = req.body;
-
-        console.log('Received request to create/update building:');
-        console.log(`Floors: ${floors}, Max Elevators: ${maxElevators}`);
-
-        const buildingConfig = { floors, maxElevators };
-        await redisClient.set(BUILDING_KEY, JSON.stringify(buildingConfig));
-
-        console.log('Building configuration saved to Redis');
-        res.status(201).send('Building configuration saved');
+        try {
+            const { floors, maxElevators } = req.body;
+            console.log('Received request to create/update building:');
+            console.log(`Floors: ${floors}, Max Elevators: ${maxElevators}`);
+            const buildingConfig = { floors, maxElevators };
+            await redisClient.set(BUILDING_KEY, JSON.stringify(buildingConfig));
+            console.log('Building configuration saved to Redis');
+            res.status(201).send('Building configuration saved');
+        } catch (error) {
+            console.error('Error in POST /building:', error);
+            res.status(500).send('Internal Server Error');
+        }
     });
 
     app.get('/building', async (_req: Request, res: Response) => {
-        console.log('Received request to get building configuration');
-
-        const buildingConfig = await redisClient.get(BUILDING_KEY);
-        if (buildingConfig) {
-            res.status(200).json(JSON.parse(buildingConfig));
-        } else {
-            res.status(404).send('Building configuration not found');
+        try {
+            console.log('Received request to get building configuration');
+            const buildingConfig = await redisClient.get(BUILDING_KEY);
+            if (buildingConfig) {
+                res.status(200).json(JSON.parse(buildingConfig));
+            } else {
+                res.status(404).send('Building configuration not found');
+            }
+        } catch (error) {
+            console.error('Error in GET /building:', error);
+            res.status(500).send('Internal Server Error');
         }
     });
 
     app.post('/elevator', async (req: Request, res: Response) => {
-        const { id, initialFloor, capacity } = req.body;
-
-        console.log('Received request to create elevator:');
-        console.log(`ID: ${id}, Initial Floor: ${initialFloor}, Capacity: ${capacity}`);
-
-        const elevator = new Elevator(id, initialFloor, capacity);
-        await elevatorRepository.addElevator(elevator);
-
-        const event = new ElevatorCreatedEvent({ id, initialFloor, capacity });
-        await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
-
-        console.log(`Elevator created event sent to queue for ID: ${id}`);
-        res.status(201).send('Elevator created');
+        try {
+            const { id, initialFloor, capacity } = req.body;
+            console.log('Received request to create elevator:');
+            console.log(`ID: ${id}, Initial Floor: ${initialFloor}, Capacity: ${capacity}`);
+            const elevator = new Elevator(id, initialFloor, capacity);
+            await elevatorRepository.addElevator(elevator);
+            const event = new ElevatorCreatedEvent({ id, initialFloor, capacity });
+            await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
+            console.log(`Elevator created event sent to queue for ID: ${id}`);
+            res.status(201).send('Elevator created');
+        } catch (error) {
+            console.error('Error in POST /elevator:', error);
+            res.status(500).send('Internal Server Error');
+        }
     });
 
     app.put('/elevator/:id', async (req: Request, res: Response) => {
-        const { id } = req.params;
-        const { currentFloor, targetFloor, load } = req.body;
-
-        console.log('Received request to update elevator:');
-        console.log(`ID: ${id}, Current Floor: ${currentFloor}, Target Floor: ${targetFloor}, Load: ${load}`);
-
-        const elevator = await elevatorRepository.getById(Number(id));
-        if (elevator) {
-            elevator.currentFloor = currentFloor;
-            elevator.updateTarget(targetFloor);
-            elevator.load = load;
-            await elevatorRepository.update(elevator);
-
-            const event = new ElevatorUpdatedEvent({ id: Number(id), currentFloor, targetFloor, load });
-            await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
-
-            console.log(`Elevator updated event sent to queue for ID: ${id}`);
-            res.status(200).send('Elevator updated');
-        } else {
-            res.status(404).send('Elevator not found');
+        try {
+            const { id } = req.params;
+            const { currentFloor, targetFloor, load } = req.body;
+            console.log('Received request to update elevator:');
+            console.log(`ID: ${id}, Current Floor: ${currentFloor}, Target Floor: ${targetFloor}, Load: ${load}`);
+            const elevator = await elevatorRepository.getById(Number(id));
+            if (elevator) {
+                elevator.currentFloor = currentFloor;
+                elevator.updateTarget(targetFloor);
+                elevator.load = load;
+                await elevatorRepository.update(elevator);
+                const event = new ElevatorUpdatedEvent({ id: Number(id), currentFloor, targetFloor, load });
+                await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
+                console.log(`Elevator updated event sent to queue for ID: ${id}`);
+                res.status(200).send('Elevator updated');
+            } else {
+                res.status(404).send('Elevator not found');
+            }
+        } catch (error) {
+            console.error('Error in PUT /elevator/:id:', error);
+            res.status(500).send('Internal Server Error');
         }
     });
 
     app.delete('/elevator/:id', async (req: Request, res: Response) => {
-        const { id } = req.params;
-
-        console.log(`Received request to delete elevator ID: ${id}`);
-
-        await elevatorRepository.deleteElevator(Number(id));
-        console.log(`Elevator ID: ${id} deleted from Redis`);
-        res.status(200).send(`Elevator ID: ${id} deleted`);
+        try {
+            const { id } = req.params;
+            console.log(`Received request to delete elevator ID: ${id}`);
+            await elevatorRepository.deleteElevator(Number(id));
+            console.log(`Elevator ID: ${id} deleted from Redis`);
+            res.status(200).send(`Elevator ID: ${id} deleted`);
+        } catch (error) {
+            console.error('Error in DELETE /elevator/:id:', error);
+            res.status(500).send('Internal Server Error');
+        }
     });
 
     app.get('/elevators/status', async (_req: Request, res: Response) => {
-        console.log('Received request to get status for all elevators');
-
-        const elevators = await elevatorRepository.getAll();
-        console.log('Fetched elevators from Redis:', elevators);
-        res.status(200).json(elevators);
+        try {
+            console.log('Received request to get status for all elevators');
+            const elevators = await elevatorRepository.getAll();
+            console.log('Fetched elevators from Redis:', elevators);
+            res.status(200).json(elevators);
+        } catch (error) {
+            console.error('Error in GET /elevators/status:', error);
+            res.status(500).send('Internal Server Error');
+        }
     });
 
     app.post('/pickup', async (req: Request, res: Response) => {
-        const { floor, direction } = req.body;
-    
-        console.log('Received pickup request:');
-        console.log(`Floor: ${floor}, Direction: ${direction}`);
-    
-        // Create the pickup request command and handle it
-        const pickupRequestCommand = new PickupRequestCommand(Number(floor), Number(direction));
-        await pickupRequestHandler.handle(pickupRequestCommand);
-    
-        // Send the pickup request event to the queue
-        const event = new PickupRequestEvent({ floor: Number(floor), direction: Number(direction) });
-        await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
-    
-        console.log(`Pickup request event sent to queue for Floor: ${floor}`);
-    
-        // Select the nearest elevator and update its target floor
-        const elevators = await elevatorService.getStatus();
-        const nearestElevator = elevatorService.findNearestElevator(elevators, Number(floor));
-        nearestElevator.updateTarget(Number(floor));
-        await elevatorRepository.update(nearestElevator);
-    
-        // Perform movement to the target floor
-        await elevatorService.performStep();
-    
-        res.status(200).send('Pickup request sent and elevator is moving');
+        try {
+            const { floor, direction } = req.body;
+            console.log('Received pickup request:');
+            console.log(`Floor: ${floor}, Direction: ${direction}`);
+            const pickupRequestCommand = new PickupRequestCommand(Number(floor), Number(direction));
+            await pickupRequestHandler.handle(pickupRequestCommand);
+            const event = new PickupRequestEvent({ floor: Number(floor), direction: Number(direction) });
+            await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
+            console.log(`Pickup request event sent to queue for Floor: ${floor}`);
+            const elevators = await elevatorService.getStatus();
+            const nearestElevator = elevatorService.findNearestElevator(elevators, Number(floor));
+            nearestElevator.updateTarget(Number(floor));
+            await elevatorRepository.update(nearestElevator);
+            // Perform movement to the target floor and broadcast status updates at each step
+            await moveElevatorAndBroadcast(nearestElevator, elevatorService, channel);
+            res.status(200).send('Pickup request sent and elevator is moving');
+        } catch (error) {
+            console.error('Error in POST /pickup:', error);
+            res.status(500).send('Internal Server Error');
+        }
     });
-    
+
+    async function moveElevatorAndBroadcast(elevator: Elevator, elevatorService: ElevatorService, channel: Channel) {
+        try {
+            while (elevator.currentFloor !== elevator.targetFloor && elevator.targetFloor !== null) {
+                elevator.move();
+                await elevatorRepository.update(elevator);
+                // Always publish the event if the elevator is moving
+                const event = new ElevatorUpdatedEvent({
+                    id: elevator.id,
+                    currentFloor: elevator.currentFloor,
+                    targetFloor: elevator.targetFloor!,
+                    load: elevator.load
+                });
+                await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
+                // Simulate time delay for movement
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            // Update status to 'Available' once the target floor is reached
+            if (elevator.currentFloor === elevator.targetFloor) {
+                elevator.status = ElevatorStatus.Available;
+                await elevatorRepository.update(elevator);
+                const event = new ElevatorUpdatedEvent({
+                    id: elevator.id,
+                    currentFloor: elevator.currentFloor,
+                    targetFloor: elevator.currentFloor,
+                    load: elevator.load
+                });
+                await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
+            }
+        } catch (error) {
+            console.error('Error in moveElevatorAndBroadcast:', error);
+        }
+    }
 }

@@ -17,10 +17,8 @@ export class RedisElevatorRepository implements IElevatorRepository {
 
   async getAll(): Promise<Elevator[]> {
     const elevators = await redisClient.hGetAll('elevators');
-    console.log('Raw elevators data from Redis:', elevators);
     return Object.values(elevators).map((elevator) => {
       const parsed = JSON.parse(elevator);
-      console.log('Parsed elevator:', parsed);
       return new Elevator(
         parsed.id,
         parsed.currentFloor,
@@ -49,6 +47,7 @@ export class RedisElevatorRepository implements IElevatorRepository {
   async update(elevator: Elevator): Promise<void> {
     await redisClient.hSet('elevators', elevator.id.toString(), JSON.stringify(elevator));
   }
+  
 
   async updateAll(elevators: Elevator[]): Promise<void> {
     const multi = redisClient.multi();

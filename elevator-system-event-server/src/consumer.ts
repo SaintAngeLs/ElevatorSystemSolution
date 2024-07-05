@@ -1,10 +1,12 @@
 import amqp from 'amqplib';
-import { ElevatorService, ElevatorRequest } from 'elevator-system-class-library';
+import { ElevatorService, ElevatorRequest, Elevator, ElevatorStatus } from 'elevator-system-class-library';
 import WebSocket, { WebSocketServer } from 'ws';
 import { RABBITMQ_URL, ELEVATOR_QUEUE, WEBSOCKET_PORT } from './config';
 import { RedisElevatorRepository } from './repositories/redisElevatorRepository';
+import { ElevatorUpdatedEvent } from './events/elevatorUpdatedEvent';
 
 const clients: WebSocket[] = [];
+const moveIntervals: { [key: number]: NodeJS.Timeout } = {};
 
 async function startConsumer() {
     const connection = await amqp.connect(RABBITMQ_URL);
@@ -21,9 +23,11 @@ async function startConsumer() {
             if (Object.keys(event).length === 0) {
                 console.warn('Received empty message');
             } else {
-                await handleEvent(event, channel, elevatorService);
-                const status = await elevatorService.getStatus();
-                broadcastUpdate(status);
+                try {
+                    await handleEvent(event, channel, elevatorService);
+                } catch (error) {
+                    console.error('Error handling event:', error);
+                }
                 channel.ack(msg);
             }
         }
@@ -37,24 +41,66 @@ async function handleEvent(event: any, channel: amqp.Channel, elevatorService: E
         case 'PICKUP_REQUEST':
             console.log('Handling pickup request:', event.payload);
             await elevatorService.handlePickupRequest(new ElevatorRequest(event.payload.floor, event.payload.direction));
-            await elevatorService.startMovement();  // Start the movement after handling the pickup request
+            startContinuousBroadcast(elevatorService, channel);
             break;
         case 'ELEVATOR_UPDATED':
             console.log('Handling update:', event.payload);
             await elevatorService.handleUpdate(event.payload.id, event.payload.currentFloor, event.payload.targetFloor, event.payload.load);
-            break;
-        case 'STEP':
-            console.log('Handling step event:', event.payload);
-            await elevatorService.performStep();
+            broadcastUpdate(await elevatorService.getStatus());
             break;
         default:
             console.log('Unknown event type:', event.type);
     }
 }
 
-async function publishEvent(channel: amqp.Channel, type: string, payload: any) {
-    const event = { type, payload };
-    await channel.sendToQueue(ELEVATOR_QUEUE, Buffer.from(JSON.stringify(event)));
+function startContinuousBroadcast(elevatorService: ElevatorService, channel: amqp.Channel) {
+    const moveElevator = async (elevator: Elevator) => {
+        try {
+            while (elevator.currentFloor !== elevator.targetFloor && elevator.targetFloor !== null) {
+                elevator.move();
+                await elevatorService.updateElevator(elevator);
+
+                // Always publish the event if the elevator is moving
+                const event = new ElevatorUpdatedEvent({
+                    id: elevator.id,
+                    currentFloor: elevator.currentFloor,
+                    targetFloor: elevator.targetFloor!,
+                    load: elevator.load
+                });
+                await channel.sendToQueue(ELEVATOR_QUEUE, Buffer.from(JSON.stringify(event)));
+                broadcastUpdate(await elevatorService.getStatus());
+
+                // Simulate time delay for movement
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+            // Update status to 'Available' once the target floor is reached
+            if (elevator.currentFloor === elevator.targetFloor) {
+                elevator.status = ElevatorStatus.Available;
+                await elevatorService.updateElevator(elevator);
+                const event = new ElevatorUpdatedEvent({
+                    id: elevator.id,
+                    currentFloor: elevator.currentFloor,
+                    targetFloor: elevator.currentFloor,
+                    load: elevator.load
+                });
+                await channel.sendToQueue(ELEVATOR_QUEUE, Buffer.from(JSON.stringify(event)));
+                broadcastUpdate(await elevatorService.getStatus());
+                clearTimeout(moveIntervals[elevator.id]);
+                delete moveIntervals[elevator.id];
+            }
+        } catch (error) {
+            console.error('Error moving elevator:', error);
+        }
+    };
+
+    elevatorService.getStatus().then(elevators => {
+        elevators.forEach(elevator => {
+            if (!moveIntervals[elevator.id]) {
+                moveIntervals[elevator.id] = setTimeout(() => moveElevator(elevator), 1000);
+            }
+        });
+    });
 }
 
 function startWebSocketServer(elevatorService: ElevatorService) {

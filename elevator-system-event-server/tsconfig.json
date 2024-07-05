@@ -3,6 +3,9 @@
     "target": "ES2015",
     "module": "commonjs",
     "strict": true,
+    "paths": {
+      "*": ["*"]
+    },
     "esModuleInterop": true,
     "outDir": "./dist",
     "rootDir": "./src",

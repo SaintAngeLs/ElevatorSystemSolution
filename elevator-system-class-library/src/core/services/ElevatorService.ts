@@ -13,18 +13,23 @@ export class ElevatorService {
 
     async handlePickupRequest(request: ElevatorRequest): Promise<Elevator> {
         const elevators = await this.elevatorRepository.getAll();
-        console.log('Elevators:', elevators);
 
         if (elevators.length === 0) {
             throw new Error('No elevators available');
         }
 
         const nearestElevator = this.findNearestElevator(elevators, request.floor);
-        nearestElevator.updateTarget(request.floor);
-        await this.elevatorRepository.update(nearestElevator);
+        if (nearestElevator.status === 'Available' || nearestElevator.currentFloor === nearestElevator.targetFloor) {
+            nearestElevator.updateTarget(request.floor);
+            await this.elevatorRepository.update(nearestElevator);
+        }
         return nearestElevator;
     }
-    
+
+    async updateElevator(elevator: Elevator): Promise<void> {
+        await this.elevatorRepository.update(elevator);
+    }
+
     async handleUpdate(id: number, currentFloor: number, targetFloor: number, load: number): Promise<Elevator | undefined> {
         const elevator = await this.elevatorRepository.getById(id);
         if (elevator) {
@@ -45,15 +50,16 @@ export class ElevatorService {
         await this.elevatorRepository.updateAll(elevators);
     }
 
-    async startMovement(): Promise<void> {
+    async startMovement(broadcastUpdate: (status: any) => void): Promise<void> {
         const moveInterval = setInterval(async () => {
             await this.performStep();
             const elevators = await this.elevatorRepository.getAll();
+            broadcastUpdate(elevators);  // Broadcast update after each step
             const anyMoving = elevators.some(elevator => elevator.status === 'Moving');
             if (!anyMoving) {
                 clearInterval(moveInterval);
             }
-        }, 50); 
+        }, 1000); // Adjust the interval to 1000ms for visibility
     }
 
     async getStatus(): Promise<Elevator[]> {

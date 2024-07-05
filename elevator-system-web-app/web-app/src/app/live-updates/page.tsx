@@ -21,9 +21,9 @@ const LiveUpdates = () => {
       const updates = JSON.parse(event.data);
       setRealTimeUpdates((prev) => [...prev, ...updates]);
       setElevators((prevElevators) => {
-        const updatedElevators = updates.map(update => {
-          const existing = prevElevators.find(elevator => elevator.id === update.id);
-          return existing ? { ...existing, ...update } : update;
+        const updatedElevators = prevElevators.map(elevator => {
+          const update = updates.find(update => update.id === elevator.id);
+          return update ? { ...elevator, ...update } : elevator;
         });
         return updatedElevators;
       });
@@ -83,7 +83,7 @@ const LiveUpdates = () => {
     const elevatorEl = document.getElementById(`elevator-${id}`);
     if (!elevatorEl) return;
 
-    const floorHeight = 1; // Adjust based on your layout
+    const floorHeight = 0.1; // Adjust based on your layout
     const targetY = (buildingConfig.floors - targetFloor - 1) * floorHeight;
 
     elevatorEl.style.transform = `translateY(${targetY}px)`;
@@ -93,7 +93,7 @@ const LiveUpdates = () => {
     try {
       await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/pickup`, {
         floor,
-        direction: 1 // Assuming direction 1 means "up", adjust as needed
+        direction: floor // Use direction as target floor
       });
     } catch (error) {
       console.error('Failed to call elevator:', error);
@@ -134,7 +134,7 @@ const LiveUpdates = () => {
             height: '40px',
             position: 'absolute',
             top: 0,
-            transition: 'transform 1s ease-in-out'
+            transition: 'transform 1s linear' // Smooth transition
           }}
         >
           {elevator.id}

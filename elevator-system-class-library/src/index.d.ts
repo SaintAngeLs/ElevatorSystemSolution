@@ -7,25 +7,27 @@ declare module 'elevator-system-class-library' {
     }
 
     export class Elevator {
-      constructor(
-        id: number,
-        currentFloor: number,
-        capacity: number,
-        targetFloor?: number | null,
-        load?: number
-      );
-  
       id: number;
       currentFloor: number;
       targetFloor: number | null;
       capacity: number;
       load: number;
-  
+      status: ElevatorStatus;
+
+      constructor(
+          id: number,
+          currentFloor: number,
+          capacity: number,
+          targetFloor?: number | null,
+          load?: number,
+          status?: ElevatorStatus
+      );
+
       move(): void;
       updateTarget(targetFloor: number): void;
       addLoad(amount: number): boolean;
       removeLoad(amount: number): boolean;
-    }
+  }
   
     export class ElevatorRequest {
       constructor(floor: number, direction: number);
@@ -71,6 +73,7 @@ declare module 'elevator-system-class-library' {
         performStep(): Promise<void>;
         startMovement(): Promise<void>;
         getStatus(): Promise<Elevator[]>;
+        updateElevator(elevator: Elevator): Promise<void>
         findNearestElevator(elevators: Elevator[], floor: number): Elevator;
       }
   
