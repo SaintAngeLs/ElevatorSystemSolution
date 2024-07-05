@@ -1,13 +1,13 @@
 # Elevator System Solution
 
-This project is a comprehensive elevator system solution that includes multiple components such as an API server, a class library, an event server, and a web application for real-time monitoring and control. 
+This project is a comprehensive elevator system solution that includes multiple components such as an API server, a class library, an event server, and a web application for real-time monitoring and control.
 
 ## Table of Contents
 - [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Usage](#usage)
 - [Contributing](#contributing)
+- [Notes](#notes)
 - [License](#license)
 
 ## Tech Stack
@@ -15,49 +15,67 @@ This project is a comprehensive elevator system solution that includes multiple 
 - **TypeScript**: Superset of JavaScript for type-safe code
 - **Express.js**: Web framework for Node.js
 - **Redis**: In-memory data structure store
-- **RabbitMQ**: Message broker for communication between services
+- **RabbitMQ**: Message broker using AMQP protocol
 - **WebSocket**: Real-time communication protocol
 - **Next.js**: React framework for building web applications
 
-## Project Structure
-```plaintext
-elevator-system-solution/
-├── elevator-system-api/          # API server
-│   ├── src/
-│   ├── dist/
-│   ├── tests/
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── ...
-├── elevator-system-class-library/  # Shared class library
-│   ├── src/
-│   ├── dist/
-│   ├── tests/
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── ...
-├── elevator-system-event-server/  # Event server
-│   ├── src/
-│   ├── dist/
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── ...
-└── elevator-system-web-app/      # Web application
-    └── web-app/
-        ├── src/
-        ├── public/
-        ├── package.json
-        ├── next.config.mjs
-        ├── tsconfig.json
-        └── ...
-```
 
 ## Getting Started
 
 ### Prerequisites
-- Node.js (>=14.x)
+- Node.js (>=18.x)
 - Redis
 - RabbitMQ
+
+### Configuration
+
+Before running the projects, you need to configure the `config.ts` files for both the API and Event Server.
+
+#### Configuring `elevator-system-api`
+
+1. Navigate to the `elevator-system-api` directory:
+
+    ```bash
+    cd elevator-system-api/src
+    ```
+
+2. Open the `config.ts` file and configure the following settings:
+
+    ```typescript
+    export const config = {
+        rabbitmq: {
+            url: 'amqp://localhost:5672',
+            queue: 'elevator_events'
+        },
+        apiPort: 8080,
+        redis: {
+            url: process.env.REDIS_URL || 'redis://localhost:6379',
+        },
+    };
+    ```
+
+#### Configuring `elevator-system-event-server`
+
+1. Navigate to the `elevator-system-event-server` directory:
+
+    ```bash
+    cd elevator-system-event-server/src
+    ```
+
+2. Open the `config.ts` file and configure the following settings:
+
+    ```typescript
+    export const config = {
+      rabbitmq: {
+        url: 'amqp://localhost:5672',
+        queue: 'elevator_events',
+      },
+      webSocketPort: 8081,
+      redis: {
+        url: process.env.REDIS_URL || 'redis://localhost:6379',
+      },
+    };
+    ```
 
 ### Installation
 
@@ -69,9 +87,9 @@ elevator-system-solution/
 
 2. **Install dependencies**
     ```bash
-    cd elevator-system-api
-    npm install
     cd ../elevator-system-class-library
+    npm install
+    cd elevator-system-api
     npm install
     cd ../elevator-system-event-server
     npm install
@@ -81,16 +99,11 @@ elevator-system-solution/
 
 3. **Set up environment variables**
 
-    Create a `.env` file in each of the project directories (`elevator-system-api`, `elevator-system-event-server`, and `elevator-system-web-app/web-app`) and add the following variables:
+    Create a `.env.local` file in `elevator-system-web-app/web-app` and add the following variables:
 
     ```env
-    # Common variables
-    REDIS_URL=redis://localhost:6379
-    RABBITMQ_URL=amqp://localhost
-
-    # For Web Application
-    NEXT_PUBLIC_WS_URL=ws://localhost:3000
-    NEXT_PUBLIC_API_URL=http://localhost:4000
+    NEXT_PUBLIC_API_URL=http://localhost:8080
+    NEXT_PUBLIC_WS_URL=ws://localhost:8081    
     ```
 
 4. **Start the services**
@@ -180,6 +193,12 @@ The API server handles elevator control and status updates. You can interact wit
 
 The web application provides a real-time overview and control of the elevator system. You can view the status of all elevators, call elevators to specific floors, and monitor their movement in real-time.
 
+The web application has three main sections:
+
+- **Home**: Welcome page with navigation instructions.
+- **Management**: Manage the building configuration and elevators.
+- **Live Updates**: View real-time status updates of the elevators.
+
 ### Event Server
 
 The event server processes events from RabbitMQ and updates the Redis store accordingly. It ensures that the elevator status is always up-to-date.
@@ -193,6 +212,19 @@ Contributions are welcome! Please follow these steps:
 4. Push to the branch (`git push origin feature-branch`).
 5. Create a new Pull Request.
 
+## Notes
+
+- **Load and Capacity**: The load and capacity functionalities are not fully implemented in this basic version of the project. They are placeholders for future development and can be extended to handle more complex logic such as load balancing and capacity management.
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+
+
+### Management Page
+
+This page allows you to manage the building configuration and elevators.
+
+### Live Updates Page
+
+This page provides real-time status updates of the elevators, showing their current position and target floors.

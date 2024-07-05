@@ -2,6 +2,13 @@ import { Elevator } from '../entities/Elevator';
 import { ElevatorRequest } from '../entities/ElevatorRequest';
 import { ElevatorStatus } from '../entities/ElevatorStatus';
 import { IElevatorRepository } from '../repositories/IElevatorRepository';
+import { 
+    ElevatorNotFoundException, 
+    InternalServerErrorException, 
+    InvalidFloorException, 
+    CapacityExceededException 
+} from '../exceptions';
+import { PickupRequestStatus } from '../entities/PickupRequestStatus';
 
 export class ElevatorService {
     private lastAvailableTime: Map<number, number>;
@@ -11,56 +18,122 @@ export class ElevatorService {
     }
 
     async addElevator(id: number, initialFloor: number, capacity: number): Promise<Elevator> {
-        const elevator = new Elevator(id, initialFloor, capacity);
-        this.lastAvailableTime.set(id, Date.now());
-        await this.elevatorRepository.addElevator(elevator);
-        return elevator;
+        try {
+            const elevator = new Elevator(id, initialFloor, capacity);
+            this.lastAvailableTime.set(id, Date.now());
+            await this.elevatorRepository.addElevator(elevator);
+            return elevator;
+        } catch (error) {
+            throw new InternalServerErrorException('Failed to add elevator');
+        }
     }
 
     async handlePickupRequest(request: ElevatorRequest): Promise<Elevator | null> {
-        const elevators = await this.elevatorRepository.getAll();
+        try {
+            const elevators = await this.elevatorRepository.getAll();
 
-        if (elevators.length === 0) {
-            throw new Error('No elevators available');
-        }
+            if (elevators.length === 0) {
+                throw new ElevatorNotFoundException(0); 
+            }
 
-        const selectedElevator = this.findLeastRecentlyAvailableElevator(elevators);
-        if (selectedElevator && selectedElevator.status === ElevatorStatus.Available) {
-            selectedElevator.updateTarget(request.floor);
-            selectedElevator.status = ElevatorStatus.Moving;
-            this.lastAvailableTime.set(selectedElevator.id, Date.now());
-            await this.elevatorRepository.update(selectedElevator);
-            return selectedElevator;
+            const assignedRequest = await this.elevatorRepository.getNextPendingRequest();
+            if (assignedRequest && assignedRequest.elevatorId !== null) {
+                const assignedElevator = await this.elevatorRepository.getById(assignedRequest.elevatorId);
+                if (assignedElevator && assignedElevator.status === ElevatorStatus.Moving) {
+                    return assignedElevator;
+                }
+            }
+
+            const selectedElevator = this.findBestElevator(elevators, request.floor);
+            if (selectedElevator) {
+                if (request.floor < 0) {
+                    throw new InvalidFloorException();
+                }
+                selectedElevator.updateTarget(request.floor);
+                selectedElevator.status = ElevatorStatus.Moving;
+                this.lastAvailableTime.set(selectedElevator.id, Date.now());
+                await this.elevatorRepository.update(selectedElevator);
+                await this.elevatorRepository.updatePickupRequestStatus(request.floor, request.direction, PickupRequestStatus.Processing, selectedElevator.id);
+                return selectedElevator;
+            } else {
+                await this.addPickupRequestToQueue(request.floor, request.direction);
+                return null;
+            }
+        } catch (error) {
+            if (error instanceof ElevatorNotFoundException || error instanceof InvalidFloorException) {
+                throw error;
+            }
+            throw new InternalServerErrorException('Failed to handle pickup request');
         }
-        return null;
+    }
+
+    async addPickupRequestToQueue(floor: number, direction: number): Promise<void> {
+        try {
+            await this.elevatorRepository.addPickupRequest(floor, direction, PickupRequestStatus.Pending, null);
+        } catch (error) {
+            throw new InternalServerErrorException('Failed to add pickup request to queue');
+        }
     }
 
     async updateElevator(elevator: Elevator): Promise<void> {
-        await this.elevatorRepository.update(elevator);
+        try {
+            await this.elevatorRepository.update(elevator);
+            await this.processPendingRequests();
+        } catch (error) {
+            throw new InternalServerErrorException('Failed to update elevator');
+        }
     }
 
     async handleUpdate(id: number, currentFloor: number, targetFloor: number, load: number): Promise<Elevator | undefined> {
-        const elevator = await this.elevatorRepository.getById(id);
-        if (elevator) {
-            elevator.currentFloor = currentFloor;
-            elevator.updateTarget(targetFloor);
-            elevator.load = load;
-            if (elevator.status === ElevatorStatus.Available) {
-                this.lastAvailableTime.set(elevator.id, Date.now());
+        try {
+            const elevator = await this.elevatorRepository.getById(id);
+            if (elevator) {
+                if (targetFloor < 0) {
+                    throw new InvalidFloorException();
+                }
+                if (load > elevator.capacity) {
+                    throw new CapacityExceededException();
+                }
+                elevator.currentFloor = currentFloor;
+                if (elevator.status !== ElevatorStatus.Moving || elevator.currentFloor === elevator.targetFloor) {
+                    elevator.updateTarget(targetFloor);
+                }
+                elevator.load = load;
+                if (elevator.status === ElevatorStatus.Available) {
+                    this.lastAvailableTime.set(elevator.id, Date.now());
+                }
+                await this.elevatorRepository.update(elevator);
+                return elevator;
+            } else {
+                throw new ElevatorNotFoundException(id);
             }
-            await this.elevatorRepository.update(elevator);
-            return elevator;
+        } catch (error) {
+            if (error instanceof ElevatorNotFoundException || 
+                error instanceof InvalidFloorException || 
+                error instanceof CapacityExceededException) {
+                throw error;
+            }
+            throw new InternalServerErrorException('Failed to handle update');
         }
-        return undefined;
     }
 
     async performStep(): Promise<void> {
-        const elevators = await this.elevatorRepository.getAll();
-        for (const elevator of elevators) {
-            if (elevator.status === ElevatorStatus.Moving) {
-                elevator.move();
-                await this.elevatorRepository.update(elevator);
+        try {
+            const elevators = await this.elevatorRepository.getAll();
+            for (const elevator of elevators) {
+                if (elevator.status === ElevatorStatus.Moving) {
+                    elevator.move();
+                    if (elevator.currentFloor === elevator.targetFloor) {
+                        elevator.status = ElevatorStatus.Available;
+                        await this.elevatorRepository.updatePickupRequestStatus(elevator.targetFloor!, elevator.targetFloor!, PickupRequestStatus.Done, elevator.id);
+                        this.lastAvailableTime.set(elevator.id, Date.now());
+                    }
+                    await this.elevatorRepository.update(elevator);
+                }
             }
+            await this.processPendingRequests();
+        } catch (error) {
+            throw new InternalServerErrorException('Failed to perform step');
         }
     }
 
@@ -69,7 +142,7 @@ export class ElevatorService {
             await this.performStep();
             const elevators = await this.elevatorRepository.getAll();
             broadcastUpdate(elevators);
-            const anyMoving = elevators.some(elevator => elevator.status === ElevatorStatus.Moving);
+            const anyMoving = elevators.some(elevator => elevator.status === ElevatorStatus.Moving || elevator.targetFloor !== null);
             if (!anyMoving) {
                 clearInterval(moveInterval);
             }
@@ -77,16 +150,45 @@ export class ElevatorService {
     }
 
     async getStatus(): Promise<Elevator[]> {
-        return this.elevatorRepository.getAll();
+        try {
+            return await this.elevatorRepository.getAll();
+        } catch (error) {
+            throw new InternalServerErrorException('Failed to get status');
+        }
     }
 
-    public findLeastRecentlyAvailableElevator(elevators: Elevator[]): Elevator | null {
-        const availableElevators = elevators.filter(elevator => elevator.status === ElevatorStatus.Available);
+    public findBestElevator(elevators: Elevator[], requestFloor: number): Elevator | null {
+        const availableElevators = elevators.filter(elevator => 
+            elevator.status === ElevatorStatus.Available && elevator.targetFloor === null);
+
         if (availableElevators.length === 0) {
             return null;
         }
-        return availableElevators.reduce((prev, curr) => 
-            (this.lastAvailableTime.get(prev.id) || 0) < (this.lastAvailableTime.get(curr.id) || 0) ? prev : curr
-        );
+
+        const scoredElevators = availableElevators.map(elevator => {
+            const distance = Math.abs(elevator.currentFloor - requestFloor);
+            const timeSinceAvailable = Date.now() - (this.lastAvailableTime.get(elevator.id) || 0);
+
+            // Higher score for closer distance and more available time
+            const score = distance + (timeSinceAvailable / 1000);
+            return { elevator, score };
+        });
+
+        return scoredElevators.reduce((prev, curr) => prev.score < curr.score ? prev : curr).elevator;
+    }
+
+    public async processPendingRequests(): Promise<void> {
+        const elevators = await this.elevatorRepository.getAll();
+        const request = await this.elevatorRepository.getNextPendingRequest(); 
+        if (request) {
+            const availableElevator = this.findBestElevator(elevators, request.floor);
+            if (availableElevator) {
+                availableElevator.updateTarget(request.floor);
+                availableElevator.status = ElevatorStatus.Moving;
+                this.lastAvailableTime.set(availableElevator.id, Date.now());
+                await this.elevatorRepository.update(availableElevator);
+                await this.elevatorRepository.updatePickupRequestStatus(request.floor, request.direction, PickupRequestStatus.Processing, availableElevator.id);
+            }
+        }
     }
 }

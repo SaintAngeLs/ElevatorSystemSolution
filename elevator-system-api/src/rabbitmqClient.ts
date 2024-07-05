@@ -1,9 +1,7 @@
 import amqp from 'amqplib';
 import { ElevatorService } from 'elevator-system-class-library';
-
 import { GetElevatorStatusHandler } from './queryHandlers/GetElevatorStatusHandler';
 import { GetAllElevatorsHandler } from './queryHandlers/GetAllElevatorsHandler';
-
 import { GetElevatorStatusQuery } from './queries/GetElevatorStatusQuery';
 import { GetAllElevatorsQuery } from './queries/GetAllElevatorsQuery';
 import { RedisElevatorRepository } from './repositories/redisElevatorRepository';
@@ -13,6 +11,7 @@ import { PickupRequestEventHandler } from './eventHandlers/pickupRequestEventHan
 import { PickupRequestEvent } from './events/pickupRequestEvent';
 import { CreateElevatorCommand } from './commands/createElevatorCommand';
 import { UpdateElevatorCommand } from './commands/updateElevatorCommand';
+import logger from './logger';
 
 export async function setupRabbitMQ(url: string, queue: string) {
   const connection = await amqp.connect(url);
@@ -27,15 +26,15 @@ export async function setupRabbitMQ(url: string, queue: string) {
   const getAllElevatorsHandler = new GetAllElevatorsHandler(elevatorService);
   const pickupRequestEventHandler = new PickupRequestEventHandler(elevatorService);
 
-  console.log(`Waiting for messages in ${queue} queue...`);
+  logger.info(`Waiting for messages in ${queue} queue...`);
   channel.consume(queue, async (msg: amqp.Message | null) => {
     if (msg !== null) {
       const event = JSON.parse(msg.content.toString());
-      console.log('Received event:', event);
+      logger.info('Received event:', event);
       if (event && event.type) {
         await handleEvent(event, createElevatorHandler, updateElevatorHandler, getElevatorStatusHandler, getAllElevatorsHandler, pickupRequestEventHandler, channel, msg);
       } else {
-        console.log('Unknown event type:', event.type);
+        logger.warn('Unknown event type:', event.type);
       }
       channel.ack(msg);
     }
@@ -80,6 +79,6 @@ async function handleEvent(
       await pickupEventHandler.handle(pickupEvent);
       break;
     default:
-      console.log('Unknown event type:', event.type);
+      logger.warn('Unknown event type:', event.type);
   }
 }
