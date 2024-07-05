@@ -1,4 +1,3 @@
-// src/routes.ts
 import { Application, Request, Response } from 'express';
 import amqp, { Channel } from 'amqplib';
 import { config } from './config';
@@ -12,6 +11,8 @@ import { PickupRequestHandler } from './commandHandlers/pickupRequestHandler';
 import { PickupRequestEvent } from './events/pickupRequestEvent';
 import { ElevatorStatus } from './enums/ElevatorStatus';
 import logger from './logger';
+import { InternalServerErrorException } from './exceptions/InternalServerErrorException';
+import { NotFoundException } from './exceptions/NotFoundException';
 
 const BUILDING_KEY = 'building_config';
 
@@ -33,7 +34,7 @@ export async function setupRoutes(app: Application) {
       res.status(201).send('Building configuration saved');
     } catch (error) {
       logger.error('Error in POST /building:', error);
-      res.status(500).send('Internal Server Error');
+      throw new InternalServerErrorException('Failed to save building configuration');
     }
   });
 
@@ -44,11 +45,15 @@ export async function setupRoutes(app: Application) {
       if (buildingConfig) {
         res.status(200).json(JSON.parse(buildingConfig));
       } else {
-        res.status(404).send('Building configuration not found');
+        throw new NotFoundException('Building configuration not found');
       }
     } catch (error) {
       logger.error('Error in GET /building:', error);
-      res.status(500).send('Internal Server Error');
+      if (error instanceof NotFoundException) {
+        res.status(error.statusCode).send(error.message);
+      } else {
+        throw new InternalServerErrorException('Failed to get building configuration');
+      }
     }
   });
 
@@ -64,7 +69,7 @@ export async function setupRoutes(app: Application) {
       res.status(201).send('Elevator created');
     } catch (error) {
       logger.error('Error in POST /elevator:', error);
-      res.status(500).send('Internal Server Error');
+      throw new InternalServerErrorException('Failed to create elevator');
     }
   });
 
@@ -84,11 +89,15 @@ export async function setupRoutes(app: Application) {
         logger.info(`Elevator updated event sent to queue for ID: ${id}`);
         res.status(200).send('Elevator updated');
       } else {
-        res.status(404).send('Elevator not found');
+        throw new NotFoundException('Elevator not found');
       }
     } catch (error) {
       logger.error('Error in PUT /elevator/:id:', error);
-      res.status(500).send('Internal Server Error');
+      if (error instanceof NotFoundException) {
+        res.status(error.statusCode).send(error.message);
+      } else {
+        throw new InternalServerErrorException('Failed to update elevator');
+      }
     }
   });
 
@@ -101,7 +110,7 @@ export async function setupRoutes(app: Application) {
       res.status(200).send(`Elevator ID: ${id} deleted`);
     } catch (error) {
       logger.error('Error in DELETE /elevator/:id:', error);
-      res.status(500).send('Internal Server Error');
+      throw new InternalServerErrorException('Failed to delete elevator');
     }
   });
 
@@ -113,7 +122,7 @@ export async function setupRoutes(app: Application) {
       res.status(200).json(elevators);
     } catch (error) {
       logger.error('Error in GET /elevators/status:', error);
-      res.status(500).send('Internal Server Error');
+      throw new InternalServerErrorException('Failed to get elevator statuses');
     }
   });
 
@@ -134,11 +143,15 @@ export async function setupRoutes(app: Application) {
         await moveElevatorAndBroadcast(selectedElevator, elevatorService, channel);
         res.status(200).send('Pickup request sent and elevator is moving');
       } else {
-        res.status(404).send('No available elevators');
+        throw new NotFoundException('No available elevators');
       }
     } catch (error) {
       logger.error('Error in POST /pickup:', error);
-      res.status(500).send('Internal Server Error');
+      if (error instanceof NotFoundException) {
+        res.status(error.statusCode).send(error.message);
+      } else {
+        throw new InternalServerErrorException('Failed to process pickup request');
+      }
     }
   });
 
@@ -169,6 +182,7 @@ export async function setupRoutes(app: Application) {
       }
     } catch (error) {
       logger.error('Error in moveElevatorAndBroadcast:', error);
+      throw new InternalServerErrorException('Failed to move elevator');
     }
   }
 }

@@ -1,140 +1,131 @@
-import amqp from 'amqplib';
+import amqp, { Channel } from 'amqplib';
 import { ElevatorService, ElevatorRequest, Elevator } from 'elevator-system-class-library';
-import WebSocket, { WebSocketServer } from 'ws';
-import { RABBITMQ_URL, ELEVATOR_QUEUE, WEBSOCKET_PORT } from './config';
+import { RABBITMQ_URL, ELEVATOR_QUEUE } from './config';
 import { RedisElevatorRepository } from './repositories/redisElevatorRepository';
+import { IConsumer } from './interfaces/IConsumer';
+import logger from './logger';
+import { IWebSocketServer } from './interfaces/IWebSocketServer';
 import { ElevatorUpdatedEvent } from './events/elevatorUpdatedEvent';
 import { ElevatorStatus } from './enums/ElevatorStatus';
+import { InternalServerErrorException } from './exceptions/InternalServerErrorException';
+import { NotFoundException } from './exceptions/NotFoundException';
+import { BaseException } from './exceptions/BaseException';
 
-const clients: WebSocket[] = [];
-const moveIntervals: { [key: number]: NodeJS.Timeout } = {};
+export class RabbitMQConsumer implements IConsumer {
+    private channel!: Channel;
+    private elevatorService: ElevatorService;
+    private webSocketServer: IWebSocketServer;
+    private moveIntervals: { [key: number]: NodeJS.Timeout } = {};
 
-async function startConsumer() {
-    const connection = await amqp.connect(RABBITMQ_URL);
-    const channel = await connection.createChannel();
-    await channel.assertQueue(ELEVATOR_QUEUE, { durable: true });
-
-    const repository = new RedisElevatorRepository();
-    const elevatorService = new ElevatorService(repository);
-
-    console.log(`Waiting for messages in ${ELEVATOR_QUEUE} queue...`);
-    channel.consume(ELEVATOR_QUEUE, async (msg) => {
-        if (msg !== null) {
-            const event = JSON.parse(msg.content.toString());
-            if (Object.keys(event).length === 0) {
-                console.warn('Received empty message');
-            } else {
-                try {
-                    await handleEvent(event, channel, elevatorService);
-                } catch (error) {
-                    console.error('Error handling event:', error);
-                }
-                channel.ack(msg);
-            }
-        }
-    });
-
-    startWebSocketServer(elevatorService);
-}
-
-async function handleEvent(event: any, channel: amqp.Channel, elevatorService: ElevatorService) {
-    switch (event.type) {
-        case 'PICKUP_REQUEST':
-            console.log('Handling pickup request:', event.payload);
-            const assignedElevator = await elevatorService.handlePickupRequest(new ElevatorRequest(event.payload.floor, event.payload.direction));
-            if (assignedElevator) {
-                startContinuousBroadcast(elevatorService, channel, assignedElevator);
-            }
-            break;
-        case 'ELEVATOR_UPDATED':
-            console.log('Handling update:', event.payload);
-            await elevatorService.handleUpdate(event.payload.id, event.payload.currentFloor, event.payload.targetFloor, event.payload.load);
-            broadcastUpdate(await elevatorService.getStatus());
-            break;
-        default:
-            console.log('Unknown event type:', event.type);
+    constructor(webSocketServer: IWebSocketServer) {
+        const repository = new RedisElevatorRepository();
+        this.elevatorService = new ElevatorService(repository);
+        this.webSocketServer = webSocketServer;
     }
-}
 
-function startContinuousBroadcast(elevatorService: ElevatorService, channel: amqp.Channel, elevator: Elevator) {
-    const moveElevator = async (elevator: Elevator) => {
+    async start(): Promise<void> {
         try {
-            while (elevator.currentFloor !== elevator.targetFloor && elevator.targetFloor !== null) {
-                elevator.status = ElevatorStatus.Moving;
-                await elevatorService.updateElevator(elevator);
+            const connection = await amqp.connect(RABBITMQ_URL);
+            this.channel = await connection.createChannel();
+            await this.channel.assertQueue(ELEVATOR_QUEUE, { durable: true });
 
-                const event = new ElevatorUpdatedEvent({
-                    id: elevator.id,
-                    currentFloor: elevator.currentFloor,
-                    targetFloor: elevator.targetFloor!,
-                    load: elevator.load
-                });
-                await channel.sendToQueue(ELEVATOR_QUEUE, Buffer.from(JSON.stringify(event)));
-                broadcastUpdate(await elevatorService.getStatus());
-
-                await new Promise(resolve => setTimeout(resolve, 3000));
-
-                elevator.move();
-                await elevatorService.updateElevator(elevator);
-            }
-
-            if (elevator.currentFloor === elevator.targetFloor) {
-                elevator.status = ElevatorStatus.Available;
-                await elevatorService.updateElevator(elevator);
-                const event = new ElevatorUpdatedEvent({
-                    id: elevator.id,
-                    currentFloor: elevator.currentFloor,
-                    targetFloor: elevator.currentFloor,
-                    load: elevator.load
-                });
-                await channel.sendToQueue(ELEVATOR_QUEUE, Buffer.from(JSON.stringify(event)));
-                broadcastUpdate(await elevatorService.getStatus());
-                clearTimeout(moveIntervals[elevator.id]);
-                delete moveIntervals[elevator.id];
-            }
+            logger.info(`Waiting for messages in ${ELEVATOR_QUEUE} queue...`);
+            this.channel.consume(ELEVATOR_QUEUE, async (msg) => {
+                if (msg !== null) {
+                    const event = JSON.parse(msg.content.toString());
+                    if (Object.keys(event).length === 0) {
+                        logger.warn('Received empty message');
+                    } else {
+                        try {
+                            await this.handleEvent(event, msg);
+                        } catch (error: unknown) {
+                            if (error instanceof NotFoundException || error instanceof InternalServerErrorException) {
+                                logger.error((error as Error).message, { statusCode: (error as BaseException).statusCode });
+                            } else if (error instanceof Error) {
+                                logger.error('Unexpected error:', error);
+                            } else {
+                                logger.error('Unknown error:', error);
+                            }
+                        }
+                        this.channel.ack(msg);
+                    }
+                }
+            });
         } catch (error) {
-            console.error('Error moving elevator:', error);
+            logger.error('Error starting RabbitMQ consumer:', error);
+            throw new InternalServerErrorException('Failed to start RabbitMQ consumer');
         }
-    };
-
-    if (!moveIntervals[elevator.id]) {
-        moveIntervals[elevator.id] = setTimeout(() => moveElevator(elevator), 3000);
     }
-}
 
-function startWebSocketServer(elevatorService: ElevatorService) {
-    const wss = new WebSocketServer({ port: WEBSOCKET_PORT });
+    async handleEvent(event: any, msg: amqp.Message): Promise<void> {
+        switch (event.type) {
+            case 'PICKUP_REQUEST':
+                logger.info('Handling pickup request:', event.payload);
+                const assignedElevator = await this.elevatorService.handlePickupRequest(
+                    new ElevatorRequest(event.payload.floor, event.payload.direction));
+                if (assignedElevator) {
+                    this.startContinuousBroadcast(assignedElevator);
+                } else {
+                    throw new NotFoundException('No elevator available for pickup request');
+                }
+                break;
+            case 'ELEVATOR_UPDATED':
+                logger.info('Handling update:', event.payload);
+                await this.elevatorService.handleUpdate(
+                    event.payload.id, event.payload.currentFloor, 
+                    event.payload.targetFloor, event.payload.load);
+                this.webSocketServer.broadcastUpdate(await this.elevatorService.getStatus());
+                break;
+            default:
+                logger.warn('Unknown event type:', event.type);
+        }
+    }
 
-    wss.on('connection', async (ws) => {
-        clients.push(ws);
-        console.log('Client connected');
+    private startContinuousBroadcast(elevator: Elevator): void {
+        const moveElevator = async (elevator: Elevator) => {
+            try {
+                while (elevator.currentFloor !== elevator.targetFloor && 
+                    elevator.targetFloor !== null) {
+                    elevator.status = ElevatorStatus.Moving;
+                    await this.elevatorService.updateElevator(elevator);
 
-        ws.on('message', (message) => {
-            console.log('Received:', message);
-        });
+                    const event = new ElevatorUpdatedEvent({
+                        id: elevator.id,
+                        currentFloor: elevator.currentFloor,
+                        targetFloor: elevator.targetFloor!,
+                        load: elevator.load
+                    });
+                    await this.channel.sendToQueue(ELEVATOR_QUEUE, Buffer.from(JSON.stringify(event)));
+                    this.webSocketServer.broadcastUpdate(await this.elevatorService.getStatus());
 
-        ws.on('close', () => {
-            const index = clients.indexOf(ws);
-            if (index !== -1) {
-                clients.splice(index, 1);
-                console.log('Client disconnected');
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+
+                    elevator.move();
+                    await this.elevatorService.updateElevator(elevator);
+                }
+
+                if (elevator.currentFloor === elevator.targetFloor) {
+                    elevator.status = ElevatorStatus.Available;
+                    await this.elevatorService.updateElevator(elevator);
+                    const event = new ElevatorUpdatedEvent({
+                        id: elevator.id,
+                        currentFloor: elevator.currentFloor,
+                        targetFloor: elevator.currentFloor,
+                        load: elevator.load
+                    });
+                    await this.channel.sendToQueue(ELEVATOR_QUEUE, Buffer.from(JSON.stringify(event)));
+                    this.webSocketServer.broadcastUpdate(await this.elevatorService.getStatus());
+                    clearTimeout(this.moveIntervals[elevator.id]);
+                    delete this.moveIntervals[elevator.id];
+                }
+            } catch (error: unknown) {
+                logger.error('Error moving elevator:', error);
+                throw new InternalServerErrorException('Failed to move elevator');
             }
-        });
+        };
 
-        const status = await elevatorService.getStatus();
-        ws.send(JSON.stringify(status));
-    });
-
-    console.log(`WebSocket server running on ws://localhost:${WEBSOCKET_PORT}`);
-}
-
-function broadcastUpdate(status: any) {
-    const message = JSON.stringify(status);
-    for (const client of clients) {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(message);
+        if (!this.moveIntervals[elevator.id]) {
+            this.moveIntervals[elevator.id] = setTimeout(() => moveElevator(elevator), 3000);
         }
     }
 }
-
-startConsumer().catch(console.error);
