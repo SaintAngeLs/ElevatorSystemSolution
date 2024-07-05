@@ -13,7 +13,6 @@ app.use(cors({
 }));
 
 setupRoutes(app);
-// setupRabbitMQ(config.rabbitmq.url, config.rabbitmq.queue);
 
 app.listen(config.apiPort, () => {
   logger.info(`API server running on http://localhost:${config.apiPort}`);

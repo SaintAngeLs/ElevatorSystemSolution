@@ -4,7 +4,6 @@ This project is a comprehensive elevator system solution that includes multiple 
 
 ## Table of Contents
 - [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Usage](#usage)
 - [Contributing](#contributing)
@@ -20,38 +19,6 @@ This project is a comprehensive elevator system solution that includes multiple 
 - **WebSocket**: Real-time communication protocol
 - **Next.js**: React framework for building web applications
 
-## Project Structure
-```plaintext
-elevator-system-solution/
-├── elevator-system-api/          # API server
-│   ├── src/
-│   ├── dist/
-│   ├── tests/
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── ...
-├── elevator-system-class-library/  # Shared class library
-│   ├── src/
-│   ├── dist/
-│   ├── tests/
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── ...
-├── elevator-system-event-server/  # Event server
-│   ├── src/
-│   ├── dist/
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── ...
-└── elevator-system-web-app/      # Web application
-    └── web-app/
-        ├── src/
-        ├── public/
-        ├── package.json
-        ├── next.config.mjs
-        ├── tsconfig.json
-        └── ...
-```
 
 ## Getting Started
 
@@ -59,6 +26,56 @@ elevator-system-solution/
 - Node.js (>=18.x)
 - Redis
 - RabbitMQ
+
+### Configuration
+
+Before running the projects, you need to configure the `config.ts` files for both the API and Event Server.
+
+#### Configuring `elevator-system-api`
+
+1. Navigate to the `elevator-system-api` directory:
+
+    ```bash
+    cd elevator-system-api/src
+    ```
+
+2. Open the `config.ts` file and configure the following settings:
+
+    ```typescript
+    export const config = {
+        rabbitmq: {
+            url: 'amqp://localhost:5672',
+            queue: 'elevator_events'
+        },
+        apiPort: 8080,
+        redis: {
+            url: process.env.REDIS_URL || 'redis://localhost:6379',
+        },
+    };
+    ```
+
+#### Configuring `elevator-system-event-server`
+
+1. Navigate to the `elevator-system-event-server` directory:
+
+    ```bash
+    cd elevator-system-event-server/src
+    ```
+
+2. Open the `config.ts` file and configure the following settings:
+
+    ```typescript
+    export const config = {
+      rabbitmq: {
+        url: 'amqp://localhost:5672',
+        queue: 'elevator_events',
+      },
+      webSocketPort: 8081,
+      redis: {
+        url: process.env.REDIS_URL || 'redis://localhost:6379',
+      },
+    };
+    ```
 
 ### Installation
 

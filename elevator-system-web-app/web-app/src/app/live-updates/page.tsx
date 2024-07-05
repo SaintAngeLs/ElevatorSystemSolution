@@ -20,20 +20,25 @@ const LiveUpdates = () => {
 
     ws.current.onmessage = (event) => {
       const updates = JSON.parse(event.data);
-      setRealTimeUpdates((prev) => [...prev, ...updates]);
-      setElevators((prevElevators) => {
-        const updatedElevators = prevElevators.map(elevator => {
-          const update = updates.find(update => update.id === elevator.id);
-          if (update) {
-            if (update.targetFloor !== null) {
-              setPendingRequests(prev => new Set(prev).add(update.targetFloor));
-            }
-            return { ...elevator, ...update };
-          }
-          return elevator;
+      if (updates.type === 'REQUEST_COMPLETED') {
+        setPendingRequests((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(updates.payload.floor);
+          return newSet;
         });
-        return updatedElevators;
-      });
+      } else {
+        setRealTimeUpdates((prev) => [...prev, ...updates]);
+        setElevators((prevElevators) => {
+          const updatedElevators = prevElevators.map(elevator => {
+            const update = updates.find(update => update.id === elevator.id);
+            if (update) {
+              return { ...elevator, ...update };
+            }
+            return elevator;
+          });
+          return updatedElevators;
+        });
+      }
     };
 
     ws.current.onerror = (error) => {
@@ -103,13 +108,6 @@ const LiveUpdates = () => {
         floor,
         direction: floor
       });
-      setTimeout(() => {
-        setPendingRequests(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(floor);
-          return newSet;
-        });
-      }, 5000);
     } catch (error) {
       console.error('Failed to call elevator:', error);
     }
@@ -206,16 +204,6 @@ const LiveUpdates = () => {
         <div ref={buildingRef} className="building-schema" style={{ border: '1px solid black', position: 'relative' }}>
           {renderBuilding()}
         </div>
-      </div>
-      <div className="mt-6 bg-white p-6 rounded-lg shadow-md">
-        <h2 className="text-2xl font-semibold mb-4">Real-Time Updates</h2>
-        <ul className="space-y-2 max-h-64 overflow-y-auto">
-          {realTimeUpdates.map((update, index) => (
-            <li key={index} className="bg-gray-100 p-2 rounded">
-              {JSON.stringify(update)}
-            </li>
-          ))}
-        </ul>
       </div>
     </div>
   );

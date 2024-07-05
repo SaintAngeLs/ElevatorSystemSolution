@@ -1,5 +1,5 @@
 import { Application, Request, Response } from 'express';
-import amqp, { Channel } from 'amqplib';
+import amqp from 'amqplib';
 import { config } from './config';
 import { ElevatorCreatedEvent } from './events/elevatorCreatedEvent';
 import { ElevatorUpdatedEvent } from './events/elevatorUpdatedEvent';
@@ -13,6 +13,7 @@ import { ElevatorStatus } from './enums/ElevatorStatus';
 import logger from './logger';
 import { InternalServerErrorException } from './exceptions/InternalServerErrorException';
 import { NotFoundException } from './exceptions/NotFoundException';
+import { PickupRequestStatus } from './enums/PickupRequestStatus';
 
 const BUILDING_KEY = 'building_config';
 
@@ -34,7 +35,7 @@ export async function setupRoutes(app: Application) {
       res.status(201).send('Building configuration saved');
     } catch (error) {
       logger.error('Error in POST /building:', error);
-      throw new InternalServerErrorException('Failed to save building configuration');
+      res.status(500).send('Failed to save building configuration');
     }
   });
 
@@ -45,15 +46,11 @@ export async function setupRoutes(app: Application) {
       if (buildingConfig) {
         res.status(200).json(JSON.parse(buildingConfig));
       } else {
-        throw new NotFoundException('Building configuration not found');
+        res.status(404).send('Building configuration not found');
       }
     } catch (error) {
       logger.error('Error in GET /building:', error);
-      if (error instanceof NotFoundException) {
-        res.status(error.statusCode).send(error.message);
-      } else {
-        throw new InternalServerErrorException('Failed to get building configuration');
-      }
+      res.status(500).send('Failed to get building configuration');
     }
   });
 
@@ -69,7 +66,7 @@ export async function setupRoutes(app: Application) {
       res.status(201).send('Elevator created');
     } catch (error) {
       logger.error('Error in POST /elevator:', error);
-      throw new InternalServerErrorException('Failed to create elevator');
+      res.status(500).send('Failed to create elevator');
     }
   });
 
@@ -89,15 +86,11 @@ export async function setupRoutes(app: Application) {
         logger.info(`Elevator updated event sent to queue for ID: ${id}`);
         res.status(200).send('Elevator updated');
       } else {
-        throw new NotFoundException('Elevator not found');
+        res.status(404).send('Elevator not found');
       }
     } catch (error) {
       logger.error('Error in PUT /elevator/:id:', error);
-      if (error instanceof NotFoundException) {
-        res.status(error.statusCode).send(error.message);
-      } else {
-        throw new InternalServerErrorException('Failed to update elevator');
-      }
+      res.status(500).send('Failed to update elevator');
     }
   });
 
@@ -110,7 +103,7 @@ export async function setupRoutes(app: Application) {
       res.status(200).send(`Elevator ID: ${id} deleted`);
     } catch (error) {
       logger.error('Error in DELETE /elevator/:id:', error);
-      throw new InternalServerErrorException('Failed to delete elevator');
+      res.status(500).send('Failed to delete elevator');
     }
   });
 
@@ -122,7 +115,7 @@ export async function setupRoutes(app: Application) {
       res.status(200).json(elevators);
     } catch (error) {
       logger.error('Error in GET /elevators/status:', error);
-      throw new InternalServerErrorException('Failed to get elevator statuses');
+      res.status(500).send('Failed to get elevator statuses');
     }
   });
 
@@ -130,59 +123,20 @@ export async function setupRoutes(app: Application) {
     try {
       const { floor, direction } = req.body;
       logger.info('Received pickup request:', { floor, direction });
+
       const pickupRequestCommand = new PickupRequestCommand(Number(floor), Number(direction));
       await pickupRequestHandler.handle(pickupRequestCommand);
+
       const event = new PickupRequestEvent({ floor: Number(floor), direction: Number(direction) });
       await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
       logger.info(`Pickup request event sent to queue for Floor: ${floor}`);
-      const elevators = await elevatorService.getStatus();
-      const selectedElevator = elevatorService.findLeastRecentlyAvailableElevator(elevators);
-      if (selectedElevator) {
-        selectedElevator.updateTarget(Number(floor));
-        await elevatorRepository.update(selectedElevator);
-        await moveElevatorAndBroadcast(selectedElevator, elevatorService, channel);
-        res.status(200).send('Pickup request sent and elevator is moving');
-      } else {
-        throw new NotFoundException('No available elevators');
-      }
+
+      await elevatorRepository.addPickupRequest(Number(floor), Number(direction), PickupRequestStatus.Pending);
+
+      res.status(200).send('Pickup request received. An elevator will be dispatched when available.');
     } catch (error) {
       logger.error('Error in POST /pickup:', error);
-      if (error instanceof NotFoundException) {
-        res.status(error.statusCode).send(error.message);
-      } else {
-        throw new InternalServerErrorException('Failed to process pickup request');
-      }
+      res.status(500).send('Failed to process pickup request');
     }
   });
-
-  async function moveElevatorAndBroadcast(elevator: Elevator, elevatorService: ElevatorService, channel: Channel) {
-    try {
-      while (elevator.currentFloor !== elevator.targetFloor && elevator.targetFloor !== null) {
-        elevator.move();
-        await elevatorRepository.update(elevator);
-        const event = new ElevatorUpdatedEvent({
-          id: elevator.id,
-          currentFloor: elevator.currentFloor,
-          targetFloor: elevator.targetFloor!,
-          load: elevator.load
-        });
-        await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      }
-      if (elevator.currentFloor === elevator.targetFloor) {
-        elevator.status = ElevatorStatus.Available;
-        await elevatorRepository.update(elevator);
-        const event = new ElevatorUpdatedEvent({
-          id: elevator.id,
-          currentFloor: elevator.currentFloor,
-          targetFloor: elevator.currentFloor,
-          load: elevator.load
-        });
-        await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
-      }
-    } catch (error) {
-      logger.error('Error in moveElevatorAndBroadcast:', error);
-      throw new InternalServerErrorException('Failed to move elevator');
-    }
-  }
 }
