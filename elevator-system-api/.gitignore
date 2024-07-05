@@ -16,7 +16,7 @@ node_modules/
 # production
 /build
 
-# misc
+# misc.
 .DS_Store
 *.pem
 

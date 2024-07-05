@@ -15,7 +15,7 @@ This project is a comprehensive elevator system solution that includes multiple 
 - **TypeScript**: Superset of JavaScript for type-safe code
 - **Express.js**: Web framework for Node.js
 - **Redis**: In-memory data structure store
-- **RabbitMQ**: Message broker for communication between services
+- **RabbitMQ**: Message broker using AMQP protocol
 - **WebSocket**: Real-time communication protocol
 - **Next.js**: React framework for building web applications
 
@@ -55,7 +55,7 @@ elevator-system-solution/
 ## Getting Started
 
 ### Prerequisites
-- Node.js (>=14.x)
+- Node.js (>=18.x)
 - Redis
 - RabbitMQ
 
@@ -69,9 +69,9 @@ elevator-system-solution/
 
 2. **Install dependencies**
     ```bash
-    cd elevator-system-api
-    npm install
     cd ../elevator-system-class-library
+    npm install
+    cd elevator-system-api
     npm install
     cd ../elevator-system-event-server
     npm install
@@ -81,16 +81,11 @@ elevator-system-solution/
 
 3. **Set up environment variables**
 
-    Create a `.env` file in each of the project directories (`elevator-system-api`, `elevator-system-event-server`, and `elevator-system-web-app/web-app`) and add the following variables:
+    Create a `.env.local` file in `elevator-system-web-app/web-app` and add the following variables:
 
     ```env
-    # Common variables
-    REDIS_URL=redis://localhost:6379
-    RABBITMQ_URL=amqp://localhost
-
-    # For Web Application
-    NEXT_PUBLIC_WS_URL=ws://localhost:3000
-    NEXT_PUBLIC_API_URL=http://localhost:4000
+    NEXT_PUBLIC_API_URL=http://localhost:8080
+    NEXT_PUBLIC_WS_URL=ws://localhost:8081    
     ```
 
 4. **Start the services**
