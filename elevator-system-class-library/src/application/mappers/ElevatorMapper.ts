@@ -1,4 +1,3 @@
-
 import { Elevator } from '../../core/entities/Elevator';
 import { ElevatorDTO } from '../dtos/ElevatorDTO';
 
@@ -15,6 +14,6 @@ export class ElevatorMapper {
 
     static toDomain(dto: ElevatorDTO): Elevator {
         return new Elevator(dto.id, dto.currentFloor, 
-            dto.targetFloor, dto.capacity, dto.load);
+            dto.capacity, dto.targetFloor ?? undefined, dto.load);
     }
 }

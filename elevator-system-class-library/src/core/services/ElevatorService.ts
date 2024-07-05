@@ -1,54 +1,92 @@
 import { Elevator } from '../entities/Elevator';
 import { ElevatorRequest } from '../entities/ElevatorRequest';
+import { ElevatorStatus } from '../entities/ElevatorStatus';
 import { IElevatorRepository } from '../repositories/IElevatorRepository';
 
 export class ElevatorService {
-    constructor(private elevatorRepository: IElevatorRepository) {}
+    private lastAvailableTime: Map<number, number>;
 
-    addElevator(id: number, 
-        initialFloor: number, 
-        capacity: number): Elevator {
-        const elevator = new Elevator(id, initialFloor, null, capacity);
-        this.elevatorRepository.addElevator(elevator);
+    constructor(private elevatorRepository: IElevatorRepository) {
+        this.lastAvailableTime = new Map<number, number>();
+    }
+
+    async addElevator(id: number, initialFloor: number, capacity: number): Promise<Elevator> {
+        const elevator = new Elevator(id, initialFloor, capacity);
+        this.lastAvailableTime.set(id, Date.now());
+        await this.elevatorRepository.addElevator(elevator);
         return elevator;
     }
 
-    handlePickupRequest(request: ElevatorRequest): Elevator {
-        const elevators = this.elevatorRepository.getAll();
-        const nearestElevator = this.findNearestElevator(elevators, request.floor);
-        nearestElevator.updateTarget(request.floor);
-        this.elevatorRepository.update(nearestElevator);
-        return nearestElevator;
+    async handlePickupRequest(request: ElevatorRequest): Promise<Elevator | null> {
+        const elevators = await this.elevatorRepository.getAll();
+
+        if (elevators.length === 0) {
+            throw new Error('No elevators available');
+        }
+
+        const selectedElevator = this.findLeastRecentlyAvailableElevator(elevators);
+        if (selectedElevator && selectedElevator.status === ElevatorStatus.Available) {
+            selectedElevator.updateTarget(request.floor);
+            selectedElevator.status = ElevatorStatus.Moving;
+            this.lastAvailableTime.set(selectedElevator.id, Date.now());
+            await this.elevatorRepository.update(selectedElevator);
+            return selectedElevator;
+        }
+        return null;
     }
 
-    handleUpdate(id: number, currentFloor: number, 
-        targetFloor: number, 
-        load: number): Elevator | undefined {
-        const elevator = this.elevatorRepository.getById(id);
+    async updateElevator(elevator: Elevator): Promise<void> {
+        await this.elevatorRepository.update(elevator);
+    }
+
+    async handleUpdate(id: number, currentFloor: number, targetFloor: number, load: number): Promise<Elevator | undefined> {
+        const elevator = await this.elevatorRepository.getById(id);
         if (elevator) {
             elevator.currentFloor = currentFloor;
             elevator.updateTarget(targetFloor);
             elevator.load = load;
-            this.elevatorRepository.update(elevator);
+            if (elevator.status === ElevatorStatus.Available) {
+                this.lastAvailableTime.set(elevator.id, Date.now());
+            }
+            await this.elevatorRepository.update(elevator);
+            return elevator;
         }
-        return elevator;
+        return undefined;
     }
 
-    performStep() {
-        const elevators = this.elevatorRepository.getAll();
-        elevators.forEach(elevator => elevator.move());
-        this.elevatorRepository.updateAll(elevators);
+    async performStep(): Promise<void> {
+        const elevators = await this.elevatorRepository.getAll();
+        for (const elevator of elevators) {
+            if (elevator.status === ElevatorStatus.Moving) {
+                elevator.move();
+                await this.elevatorRepository.update(elevator);
+            }
+        }
     }
 
-    getStatus(): Elevator[] {
+    async startMovement(broadcastUpdate: (status: any) => void): Promise<void> {
+        const moveInterval = setInterval(async () => {
+            await this.performStep();
+            const elevators = await this.elevatorRepository.getAll();
+            broadcastUpdate(elevators);
+            const anyMoving = elevators.some(elevator => elevator.status === ElevatorStatus.Moving);
+            if (!anyMoving) {
+                clearInterval(moveInterval);
+            }
+        }, 1000);
+    }
+
+    async getStatus(): Promise<Elevator[]> {
         return this.elevatorRepository.getAll();
     }
 
-    private findNearestElevator(elevators: Elevator[], 
-        floor: number): Elevator {
-        return elevators.reduce((prev, curr) =>
-            Math.abs(curr.currentFloor - floor) < 
-                        Math.abs(prev.currentFloor - floor) ? curr : prev
+    public findLeastRecentlyAvailableElevator(elevators: Elevator[]): Elevator | null {
+        const availableElevators = elevators.filter(elevator => elevator.status === ElevatorStatus.Available);
+        if (availableElevators.length === 0) {
+            return null;
+        }
+        return availableElevators.reduce((prev, curr) => 
+            (this.lastAvailableTime.get(prev.id) || 0) < (this.lastAvailableTime.get(curr.id) || 0) ? prev : curr
         );
     }
 }
