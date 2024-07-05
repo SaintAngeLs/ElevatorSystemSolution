@@ -60,22 +60,23 @@ declare module 'elevator-system-class-library' {
   
     // Services
     export class ElevatorService {
-        constructor(elevatorRepository: IElevatorRepository);
-    
-        addElevator(id: number, initialFloor: number, capacity: number): Promise<Elevator>;
-        handlePickupRequest(request: ElevatorRequest): Promise<Elevator>;
-        handleUpdate(
-          id: number,
-          currentFloor: number,
-          targetFloor: number,
-          load: number
-        ): Promise<Elevator | undefined>;
-        performStep(): Promise<void>;
-        startMovement(): Promise<void>;
-        getStatus(): Promise<Elevator[]>;
-        updateElevator(elevator: Elevator): Promise<void>
-        findNearestElevator(elevators: Elevator[], floor: number): Elevator;
-      }
+      constructor(elevatorRepository: IElevatorRepository);
+  
+      addElevator(id: number, initialFloor: number, capacity: number): Promise<Elevator>;
+      handlePickupRequest(request: ElevatorRequest): Promise<Elevator>;
+      handleUpdate(
+        id: number,
+        currentFloor: number,
+        targetFloor: number,
+        load: number
+      ): Promise<Elevator | undefined>;
+      performStep(): Promise<void>;
+      startMovement(broadcastUpdate: (status: any) => void): Promise<void>;
+      getStatus(): Promise<Elevator[]>;
+      updateElevator(elevator: Elevator): Promise<void>
+      findNearestElevator(elevators: Elevator[], floor: number): Elevator;
+      findLeastRecentlyAvailableElevator(elevators: Elevator[]): Elevator | null;
+    }
   
     // DTOs
     export interface ElevatorDTO {

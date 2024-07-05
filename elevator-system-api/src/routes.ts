@@ -4,11 +4,12 @@ import { config } from './config';
 import { ElevatorCreatedEvent } from './events/elevatorCreatedEvent';
 import { ElevatorUpdatedEvent } from './events/elevatorUpdatedEvent';
 import { RedisElevatorRepository } from './repositories/redisElevatorRepository';
-import { Elevator, ElevatorService, ElevatorStatus } from 'elevator-system-class-library';
+import { Elevator, ElevatorService } from 'elevator-system-class-library';
 import redisClient from './redisClient';
 import { PickupRequestCommand } from './commands/pickupRequestCommand';
 import { PickupRequestHandler } from './commandHandlers/pickupRequestHandler';
 import { PickupRequestEvent } from './events/pickupRequestEvent';
+import { ElevatorStatus } from './enums/ElevatorStatus';
 
 const BUILDING_KEY = 'building_config';
 
@@ -128,12 +129,15 @@ export async function setupRoutes(app: Application) {
             await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
             console.log(`Pickup request event sent to queue for Floor: ${floor}`);
             const elevators = await elevatorService.getStatus();
-            const nearestElevator = elevatorService.findNearestElevator(elevators, Number(floor));
-            nearestElevator.updateTarget(Number(floor));
-            await elevatorRepository.update(nearestElevator);
-            // Perform movement to the target floor and broadcast status updates at each step
-            await moveElevatorAndBroadcast(nearestElevator, elevatorService, channel);
-            res.status(200).send('Pickup request sent and elevator is moving');
+            const selectedElevator = elevatorService.findLeastRecentlyAvailableElevator(elevators);
+            if (selectedElevator) {
+                selectedElevator.updateTarget(Number(floor));
+                await elevatorRepository.update(selectedElevator);
+                await moveElevatorAndBroadcast(selectedElevator, elevatorService, channel);
+                res.status(200).send('Pickup request sent and elevator is moving');
+            } else {
+                res.status(404).send('No available elevators');
+            }
         } catch (error) {
             console.error('Error in POST /pickup:', error);
             res.status(500).send('Internal Server Error');
@@ -145,7 +149,6 @@ export async function setupRoutes(app: Application) {
             while (elevator.currentFloor !== elevator.targetFloor && elevator.targetFloor !== null) {
                 elevator.move();
                 await elevatorRepository.update(elevator);
-                // Always publish the event if the elevator is moving
                 const event = new ElevatorUpdatedEvent({
                     id: elevator.id,
                     currentFloor: elevator.currentFloor,
@@ -153,10 +156,8 @@ export async function setupRoutes(app: Application) {
                     load: elevator.load
                 });
                 await channel.sendToQueue(config.rabbitmq.queue, Buffer.from(JSON.stringify(event)));
-                // Simulate time delay for movement
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise(resolve => setTimeout(resolve, 3000));
             }
-            // Update status to 'Available' once the target floor is reached
             if (elevator.currentFloor === elevator.targetFloor) {
                 elevator.status = ElevatorStatus.Available;
                 await elevatorRepository.update(elevator);

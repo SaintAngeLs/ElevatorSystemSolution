@@ -1,9 +1,10 @@
 import amqp from 'amqplib';
-import { ElevatorService, ElevatorRequest, Elevator, ElevatorStatus } from 'elevator-system-class-library';
+import { ElevatorService, ElevatorRequest, Elevator } from 'elevator-system-class-library';
 import WebSocket, { WebSocketServer } from 'ws';
 import { RABBITMQ_URL, ELEVATOR_QUEUE, WEBSOCKET_PORT } from './config';
 import { RedisElevatorRepository } from './repositories/redisElevatorRepository';
 import { ElevatorUpdatedEvent } from './events/elevatorUpdatedEvent';
+import { ElevatorStatus } from './enums/ElevatorStatus';
 
 const clients: WebSocket[] = [];
 const moveIntervals: { [key: number]: NodeJS.Timeout } = {};
@@ -40,8 +41,10 @@ async function handleEvent(event: any, channel: amqp.Channel, elevatorService: E
     switch (event.type) {
         case 'PICKUP_REQUEST':
             console.log('Handling pickup request:', event.payload);
-            await elevatorService.handlePickupRequest(new ElevatorRequest(event.payload.floor, event.payload.direction));
-            startContinuousBroadcast(elevatorService, channel);
+            const assignedElevator = await elevatorService.handlePickupRequest(new ElevatorRequest(event.payload.floor, event.payload.direction));
+            if (assignedElevator) {
+                startContinuousBroadcast(elevatorService, channel, assignedElevator);
+            }
             break;
         case 'ELEVATOR_UPDATED':
             console.log('Handling update:', event.payload);
@@ -53,14 +56,13 @@ async function handleEvent(event: any, channel: amqp.Channel, elevatorService: E
     }
 }
 
-function startContinuousBroadcast(elevatorService: ElevatorService, channel: amqp.Channel) {
+function startContinuousBroadcast(elevatorService: ElevatorService, channel: amqp.Channel, elevator: Elevator) {
     const moveElevator = async (elevator: Elevator) => {
         try {
             while (elevator.currentFloor !== elevator.targetFloor && elevator.targetFloor !== null) {
-                elevator.move();
+                elevator.status = ElevatorStatus.Moving;
                 await elevatorService.updateElevator(elevator);
 
-                // Always publish the event if the elevator is moving
                 const event = new ElevatorUpdatedEvent({
                     id: elevator.id,
                     currentFloor: elevator.currentFloor,
@@ -70,11 +72,12 @@ function startContinuousBroadcast(elevatorService: ElevatorService, channel: amq
                 await channel.sendToQueue(ELEVATOR_QUEUE, Buffer.from(JSON.stringify(event)));
                 broadcastUpdate(await elevatorService.getStatus());
 
-                // Simulate time delay for movement
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise(resolve => setTimeout(resolve, 3000));
+
+                elevator.move();
+                await elevatorService.updateElevator(elevator);
             }
 
-            // Update status to 'Available' once the target floor is reached
             if (elevator.currentFloor === elevator.targetFloor) {
                 elevator.status = ElevatorStatus.Available;
                 await elevatorService.updateElevator(elevator);
@@ -94,13 +97,9 @@ function startContinuousBroadcast(elevatorService: ElevatorService, channel: amq
         }
     };
 
-    elevatorService.getStatus().then(elevators => {
-        elevators.forEach(elevator => {
-            if (!moveIntervals[elevator.id]) {
-                moveIntervals[elevator.id] = setTimeout(() => moveElevator(elevator), 1000);
-            }
-        });
-    });
+    if (!moveIntervals[elevator.id]) {
+        moveIntervals[elevator.id] = setTimeout(() => moveElevator(elevator), 3000);
+    }
 }
 
 function startWebSocketServer(elevatorService: ElevatorService) {
