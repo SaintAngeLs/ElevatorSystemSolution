@@ -9,10 +9,7 @@ const Sidebar = () => {
   const tabs = [
     { name: "Home", route: "/" },
     { name: "Management", route: "/management" },
-    { name: "Users", route: "/users" },
     { name: "Live Updates", route: "/live-updates" },
-    { name: "Tests", route: "/tests" },
-    { name: "Statistics", route: "/statistics" },
   ];
 
   return (
